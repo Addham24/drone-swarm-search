@@ -189,9 +189,24 @@ if __name__ == "__main__":
 
     print(f"Loading policy weights from checkpoint: {CHECKPOINT_PATH}")
     import pickle
+
+    class SafeUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            try:
+                return super().find_class(module, name)
+            except (ModuleNotFoundError, AttributeError):
+                class DummyState:
+                    def __init__(self, *args, **kwargs):
+                        pass
+                    def __setstate__(self, state):
+                        pass
+                DummyState.__module__ = module
+                DummyState.__name__ = name
+                return DummyState
+
     policy_state_path = os.path.join(CHECKPOINT_PATH, "policies", "default_policy", "policy_state.pkl")
     with open(policy_state_path, "rb") as f:
-        policy_state = pickle.load(f)
+        policy_state = SafeUnpickler(f).load()
 
     # Restore ONLY the model weights — skip optimizer state
     policy = algo.get_policy("default_policy")
