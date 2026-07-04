@@ -142,7 +142,7 @@ if __name__ == "__main__":
     ModelCatalog.register_custom_model("CNNModel", CNNModel)
 
     num_gpus = 1 if torch.cuda.is_available() else 0
-    num_runners = 28 if torch.cuda.is_available() else 6
+    num_runners = 24 if torch.cuda.is_available() else 6
     print(f"Using {num_gpus} GPUs and {num_runners} environment runners.")
 
     config = (
