@@ -177,10 +177,10 @@ if __name__ == "__main__":
 
     curr_path = pathlib.Path().resolve()
 
-    # CHECKPOINT_PATH relative to workspace
+    # CHECKPOINT_PATH relative to workspace (pointing to clean original 92% checkpoint)
     CHECKPOINT_PATH = os.path.join(
-        curr_path, "ray_res", env_name, "MAPPO_selfheal_final_v2", "checkpoints",
-        "checkpoint_iter_1730_ts_16146432.pt"
+        curr_path, "ray_res", env_name, "MAPPO_selfheal_comparison",
+        "PPO_DSSE_Coverage_0261b_00000_0_2026-05-07_12-54-04", "checkpoint_000023"
     )
 
     # --- Build algo fresh, then load ONLY the policy weights from checkpoint ---
@@ -188,11 +188,14 @@ if __name__ == "__main__":
     algo = config.build()
 
     print(f"Loading policy weights from checkpoint: {CHECKPOINT_PATH}")
-    resumed_data = torch.load(CHECKPOINT_PATH, weights_only=False)
+    import pickle
+    policy_state_path = os.path.join(CHECKPOINT_PATH, "policies", "default_policy", "policy_state.pkl")
+    with open(policy_state_path, "rb") as f:
+        policy_state = pickle.load(f)
 
     # Restore ONLY the model weights — skip optimizer state
     policy = algo.get_policy("default_policy")
-    policy.set_weights(resumed_data["model_state_dict"])
+    policy.set_weights(policy_state["weights"])
     print("Model weights restored on local worker (fresh optimizer).")
 
     # CRITICAL: Sync restored weights to ALL remote workers
@@ -201,7 +204,7 @@ if __name__ == "__main__":
 
     # Verify restore worked
     sample_weight = list(policy.model.parameters())[0].data.mean().item()
-    checkpoint_weight = resumed_data["model_state_dict"]["cnn.0.weight"].cpu().numpy().mean()
+    checkpoint_weight = policy_state["weights"]["cnn.0.weight"].mean()
     print(f"Local weight mean:      {sample_weight:.6f}")
     print(f"Checkpoint weight mean: {checkpoint_weight:.6f}")
     print(f"Match: {abs(sample_weight - checkpoint_weight) < 1e-6}")
@@ -236,9 +239,9 @@ if __name__ == "__main__":
 
     writers = [writer_6007, writer_6008]
 
-    # The checkpoint timestep is the start point — offset is 0 because raw_timesteps in algo starts at 0
-    TIMESTEP_OFFSET = 16_146_432
-    print(f"Timestep offset: {TIMESTEP_OFFSET:,} (continuing from 16M checkpoint)")
+    # The original checkpoint timestep is the start point
+    TIMESTEP_OFFSET = 1_974_272
+    print(f"Timestep offset: {TIMESTEP_OFFSET:,} (continuing from original run)")
 
     # --- Set up checkpoint saving ---
     ckpt_dir = os.path.join(
@@ -249,7 +252,7 @@ if __name__ == "__main__":
     # --- Training loop ---
     TARGET_TIMESTEPS = 20_000_000  # Total including offset
     CHECKPOINT_FREQ = 10  # Save every 10 iterations
-    iteration = 1730
+    iteration = 240
 
     print(f"\nStarting training loop (target: {TARGET_TIMESTEPS:,} total timesteps)...")
     print("=" * 60)
