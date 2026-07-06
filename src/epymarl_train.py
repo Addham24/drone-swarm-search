@@ -47,22 +47,36 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def ensure_epymarl():
     """Clone EPyMARL if not already present, and install its dependencies."""
-    if os.path.isdir(EPYMARL_DIR):
-        print(f"[✓] EPyMARL already cloned at: {EPYMARL_DIR}")
-        return
+    is_cloned = os.path.isdir(EPYMARL_DIR)
+    if not is_cloned:
+        print("[→] Cloning EPyMARL from GitHub...")
+        subprocess.check_call([
+            "git", "clone", "https://github.com/uoe-agents/epymarl.git", EPYMARL_DIR
+        ])
+        print(f"[✓] EPyMARL cloned to: {EPYMARL_DIR}")
 
-    print("[→] Cloning EPyMARL from GitHub...")
-    subprocess.check_call([
-        "git", "clone", "https://github.com/uoe-agents/epymarl.git", EPYMARL_DIR
-    ])
-    print(f"[✓] EPyMARL cloned to: {EPYMARL_DIR}")
+    # CRITICAL: Copy custom modifications (like cnn_agent) into the epymarl structure
+    custom_dir = os.path.join(SRC_DIR, "epymarl_custom")
+    if os.path.isdir(custom_dir):
+        print("[→] Applying custom EPyMARL modifications from epymarl_custom...")
+        import shutil
+        for root, dirs, files in os.walk(custom_dir):
+            for file in files:
+                src_path = os.path.join(root, file)
+                rel_path = os.path.relpath(src_path, custom_dir)
+                dest_path = os.path.join(EPYMARL_DIR, "src", rel_path)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                shutil.copy2(src_path, dest_path)
+                print(f"    Copied: {rel_path} -> epymarl/src/{rel_path}")
+        print("[✓] Custom EPyMARL modifications applied.")
 
-    # Install EPyMARL core dependencies
-    req_file = os.path.join(EPYMARL_DIR, "requirements.txt")
-    if os.path.isfile(req_file):
-        print("[→] Installing EPyMARL dependencies...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file])
-        print("[✓] EPyMARL dependencies installed.")
+    if not is_cloned:
+        # Install EPyMARL core dependencies
+        req_file = os.path.join(EPYMARL_DIR, "requirements.txt")
+        if os.path.isfile(req_file):
+            print("[→] Installing EPyMARL dependencies...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file])
+            print("[✓] EPyMARL dependencies installed.")
 
 
 def register_dsse_env():
