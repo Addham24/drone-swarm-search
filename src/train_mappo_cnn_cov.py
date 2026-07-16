@@ -179,6 +179,10 @@ if __name__ == "__main__":
     register_env(env_name, lambda config: ParallelPettingZooEnv(env_creator(config)))
     ModelCatalog.register_custom_model("CNNModel", CNNModel)
 
+    num_gpus = 1 if torch.cuda.is_available() else 0
+    num_runners = 24 if torch.cuda.is_available() else 6
+    print(f"Using {num_gpus} GPUs and {num_runners} environment runners.")
+
     config = (
         PPOConfig()
         .api_stack(
@@ -186,7 +190,7 @@ if __name__ == "__main__":
             enable_env_runner_and_connector_v2=False,
         )
         .environment(env=env_name)
-        .env_runners(num_env_runners=6, rollout_fragment_length="auto")
+        .env_runners(num_env_runners=num_runners, rollout_fragment_length="auto")
         .training(
             train_batch_size=8192,
             lr=1e-4,
@@ -206,7 +210,7 @@ if __name__ == "__main__":
         .experimental(_disable_preprocessor_api=True)
         .debugging(log_level="ERROR")
         .framework(framework="torch")
-        .resources(num_gpus=0)
+        .resources(num_gpus=num_gpus)
     )
 
     curr_path = pathlib.Path().resolve()
