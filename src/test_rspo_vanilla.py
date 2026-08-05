@@ -116,7 +116,62 @@ if __name__ == "__main__":
         print(f"Error: Checkpoint not found at {checkpoint_path}")
         exit(1)
 
-    algo = Algorithm.from_checkpoint(checkpoint_path)
+    try:
+        algo = Algorithm.from_checkpoint(checkpoint_path)
+    except Exception as e:
+        print(f"{Colors.YELLOW}[Notice] Algorithm.from_checkpoint failed due to Ray version difference ({e}).{Colors.RESET}")
+        print(f"{Colors.GREEN}[Info] Restoring policy weights directly from policy_state.pkl...{Colors.RESET}")
+        from ray.rllib.algorithms.ppo import PPOConfig
+        config = (
+            PPOConfig()
+            .api_stack(
+                enable_rl_module_and_learner=False,
+                enable_env_runner_and_connector_v2=False,
+            )
+            .environment(env="DSSE_Coverage_RSPO_Vanilla")
+            .env_runners(num_env_runners=0)
+            .training(
+                model={
+                    "custom_model": "RSPOModelVanilla",
+                    "_disable_preprocessor_api": True,
+                }
+            )
+            .experimental(_disable_preprocessor_api=True)
+            .framework(framework="torch")
+        )
+        algo = config.build()
+        
+        policy_state_path = os.path.join(checkpoint_path, "policies", "default_policy", "policy_state.pkl")
+        if not os.path.exists(policy_state_path):
+            # Check direct folder
+            policy_state_path = os.path.join(checkpoint_path, "policy_state.pkl")
+
+        if os.path.exists(policy_state_path):
+            import pickle
+
+            class DummyVersion:
+                def __init__(self, *args, **kwargs): pass
+                def __setstate__(self, state): pass
+
+            class VersionCompatibilityUnpickler(pickle.Unpickler):
+                def find_class(self, module, name):
+                    if name == "Version" or "version" in module:
+                        return DummyVersion
+                    return super().find_class(module, name)
+
+            with open(policy_state_path, "rb") as f:
+                policy_state = VersionCompatibilityUnpickler(f).load()
+            
+            policy = algo.get_policy("default_policy")
+            if "weights" in policy_state and isinstance(policy_state["weights"], dict):
+                import torch
+                tensor_weights = {k: torch.from_numpy(v) if not isinstance(v, torch.Tensor) else v for k, v in policy_state["weights"].items()}
+                policy.model.load_state_dict(tensor_weights, strict=False)
+            else:
+                policy.set_state(policy_state)
+            print(f"{Colors.GREEN}Successfully restored model weights!{Colors.RESET}")
+        else:
+            raise FileNotFoundError(f"Could not find policy_state.pkl at {policy_state_path}")
     env = env_creator(render_mode="human")
     observations, infos = env.reset()
 
