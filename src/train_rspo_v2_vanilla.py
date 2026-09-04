@@ -399,9 +399,15 @@ if __name__ == "__main__":
     ModelCatalog.register_custom_model("RSPOModelV2_Vanilla", RSPOModelV2)
     register_trainable("RSPOPPO", RSPOPPO)
 
+    total_cpus = os.cpu_count() or 4
     num_gpus = 1 if torch.cuda.is_available() else 0
-    num_runners = 24 if torch.cuda.is_available() else 6
-    print(f"[RSPO V2 Vanilla] Configured with {num_gpus} GPUs and {num_runners} environment runners.")
+    if "NUM_RUNNERS" in os.environ:
+        num_runners = int(os.environ["NUM_RUNNERS"])
+    else:
+        # Reserve 2 CPUs for driver & system, cap at 10 to allow running 2 scripts concurrently
+        max_allocatable = max(1, total_cpus - 2)
+        num_runners = min(10, max_allocatable)
+    print(f"[RSPO V2 Vanilla] Detected {total_cpus} CPUs. Configured with {num_gpus} GPUs and {num_runners} environment runners.")
 
     config = (
         RSPOPPOConfig()
