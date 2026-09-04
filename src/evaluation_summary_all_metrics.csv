@@ -1,0 +1,13 @@
+Algorithm,Framework,Coverage Rate Mean (%),Coverage Std (%),Coverage 95% CI (±%),Agent Attrition Rate (Crashes/Ep),Swarm Survival Rate (%),Cumulative Return Mean,Fleet Battery Level Mean (%),Mean Charging Steps
+RSPO_Vanilla,RLlib,87.91,7.48,1.47,2.1,47.5,2542.37,68.65,126.6
+RSPO_SelfHeal,RLlib,86.4,6.49,1.27,1.94,51.5,2719.4,68.26,140.8
+MAPPO_Vanilla,RLlib,71.33,9.62,1.89,2.51,37.3,2008.81,77.17,172.1
+MAPPO_SelfHeal,RLlib,72.75,20.31,3.98,1.78,55.5,2170.37,92.41,622.8
+I-DQN_Vanilla,RLlib,1.74,0.79,0.15,1.83,54.2,-198.8,102.96,154.7
+I-DQN_SelfHeal,RLlib,9.91,2.7,0.53,4.0,0.0,49.04,71.76,81.6
+QMIX_Vanilla,EPyMARL,11.43,1.36,0.27,4.0,0.0,130.21,62.73,0.0
+QMIX_SelfHeal,EPyMARL,13.76,2.53,0.5,4.0,0.0,198.44,67.5,40.4
+MAA2C_Vanilla,EPyMARL,11.19,0.1,0.02,4.0,0.0,122.66,62.73,0.0
+MAA2C_SelfHeal,EPyMARL,14.86,1.75,0.34,2.87,28.2,273.65,35.31,77.4
+COMA_Vanilla,EPyMARL,5.42,0.25,0.05,2.21,44.8,-83.18,103.08,333.2
+COMA_SelfHeal,EPyMARL,2.08,0.0,0.0,2.09,47.8,-133.34,118.79,1109.2

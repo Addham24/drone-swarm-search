@@ -1,0 +1,13 @@
+Algorithm,Framework,Coverage Rate Mean (%),Coverage Std (%),Coverage 95% CI (±%),Mean Battery Deaths
+RSPO_Vanilla,RLlib,89.24,2.61,0.51,0.03
+RSPO_SelfHeal,RLlib,87.18,2.94,0.58,0.05
+MAPPO_SelfHeal,RLlib,86.42,3.15,0.62,0.12
+MAPPO_Vanilla,RLlib,76.82,4.12,0.81,0.41
+QMIX_SelfHeal,EPyMARL,63.45,4.62,0.91,0.72
+QMIX_Vanilla,EPyMARL,60.12,4.88,0.96,0.84
+MAA2C_SelfHeal,EPyMARL,37.12,4.15,0.81,1.42
+I-DQN_SelfHeal,RLlib,36.82,4.08,0.8,1.51
+I-DQN_Vanilla,RLlib,23.51,3.42,0.67,1.82
+MAA2C_Vanilla,EPyMARL,21.04,3.82,0.75,1.65
+COMA_Vanilla,EPyMARL,13.58,2.11,0.41,2.18
+COMA_SelfHeal,EPyMARL,13.44,2.05,0.4,2.12
