@@ -160,7 +160,12 @@ if __name__ == "__main__":
         max_allocatable = max(1, total_cpus - 2)
         num_runners = min(10, max_allocatable)
 
-    print(f"[MAPPO Tracking SelfHeal] Detected {total_cpus} CPUs. Configured with {num_gpus} GPUs and {num_runners} environment runners.")
+    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU Mode (No GPU detected)"
+    print(f"======================================================================")
+    print(f"  [MAPPO Tracking SelfHeal] Starting Training")
+    print(f"  • CPUs Available : {total_cpus} (Workers: {num_runners})")
+    print(f"  • GPUs Available : {num_gpus} ({gpu_name})")
+    print(f"======================================================================")
 
     config = (
         PPOConfig()

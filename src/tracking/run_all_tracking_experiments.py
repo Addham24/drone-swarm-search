@@ -96,8 +96,16 @@ PAIRS = [
 
 
 def run_paired():
+    import torch
+    cpus = os.cpu_count() or 1
+    gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    gpu_name = torch.cuda.get_device_name(0) if gpus > 0 else "None (CPU mode)"
+
     print(f"\n{'='*75}")
     print(f"  LAUNCHING TRACKING BENCHMARK IN ALGORITHM PAIRS (RUNPOD PARALLEL MODE)")
+    print(f"  Hardware Environment:")
+    print(f"    • Total CPUs : {cpus}")
+    print(f"    • Total GPUs : {gpus} ({gpu_name})")
     print(f"{'='*75}\n")
 
     for i, pair in enumerate(PAIRS, 1):

@@ -190,11 +190,18 @@ def run_training(algo, exp_name, t_max, individual_rewards, agent="rnn", episode
 
     cmd.extend(extra_args)
 
+    import torch
+    cpus = os.cpu_count() or 1
+    gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    gpu_name = torch.cuda.get_device_name(0) if gpus > 0 else "CPU Mode (No GPU detected)"
+
     print(f"\n{'='*70}")
     print(f"  EPyMARL Training: {exp_name}")
     print(f"  Algorithm: {algo.upper()}")
     print(f"  Agent Architecture: {agent.upper()}")
     print(f"  Environment: DSSE {env_type.upper()} (4 drones, 25x25 grid)")
+    print(f"  CPUs Available: {cpus}")
+    print(f"  GPUs Available: {gpus} ({gpu_name})")
     print(f"  Timesteps: {t_max:,}")
     print(f"  Individual Rewards: {individual_rewards}")
     print(f"{'='*70}\n")
