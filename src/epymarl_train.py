@@ -115,33 +115,32 @@ def register_dsse_env():
     print("[✓] DSSE environment registered with EPyMARL.")
 
 
-def write_dsse_env_config(timestep_limit=750):
+def write_dsse_env_config(env_type="coverage", timestep_limit=750):
     """
     Write the YAML environment config for EPyMARL.
-    This tells EPyMARL how to instantiate the DSSE environment.
     """
     config_dir = os.path.join(EPYMARL_DIR, "src", "config", "envs")
-    config_path = os.path.join(config_dir, "dsse.yaml")
+    config_name = "dsse_tracking.yaml" if env_type == "tracking" else "dsse.yaml"
+    config_path = os.path.join(config_dir, config_name)
 
     os.makedirs(config_dir, exist_ok=True)
 
-    config_content = f"""# DSSE Coverage Drone Swarm Environment Config for EPyMARL
-env: "dsse"
+    env_key = "dsse_tracking" if env_type == "tracking" else "dsse"
+    map_name = "dsse_tracking" if env_type == "tracking" else "dsse_coverage"
+
+    config_content = f"""# DSSE {env_type.upper()} Drone Swarm Environment Config for EPyMARL
+env: "{env_key}"
 
 env_args:
-  map_name: "dsse_coverage"
-  # Environment parameters
+  map_name: "{map_name}"
   n_agents: 4
   grid_size: 25
   timestep_limit: {timestep_limit}
-  # Battery parameters
   max_battery: 125
   depletion_rate: 1
   charge_rate: 15
   fault_prob: 0.0005
-  # Reward mixing (VDN-style selective mixing)
   mixing_alpha: 0.5
-  # Self-healing compensation
   compensation_bonus: 2.5
   compensation_penalty: -0.5
   compensation_horizon: 100
@@ -149,20 +148,22 @@ env_args:
 """
     with open(config_path, "w") as f:
         f.write(config_content)
-    print(f"[✓] DSSE env config written to: {config_path} with timestep_limit={timestep_limit}")
+    print(f"[✓] DSSE {env_type} env config written to: {config_path} with timestep_limit={timestep_limit}")
 
 
-def run_training(algo, exp_name, t_max, individual_rewards, agent="rnn", episode_limit=750, extra_args=[]):
+def run_training(algo, exp_name, t_max, individual_rewards, agent="rnn", episode_limit=750, env_type="coverage", extra_args=[]):
     """Launches EPyMARL with the bootstrap registry wrapper."""
     main_script = os.path.join(EPYMARL_DIR, "src", "main.py")
     if not os.path.exists(main_script):
         raise FileNotFoundError(f"EPyMARL main.py not found at: {main_script}")
 
+    env_config_name = "dsse_tracking" if env_type == "tracking" else "dsse"
+
     # Sacred command-line format
     cmd = [
         sys.executable, main_script,
         f"--config={algo}",
-        "--env-config=dsse",
+        f"--env-config={env_config_name}",
         "with",
         f"t_max={t_max}",
         f"name={exp_name}",
@@ -172,65 +173,47 @@ def run_training(algo, exp_name, t_max, individual_rewards, agent="rnn", episode
         "save_model_interval=50000",
     ]
 
-    # Dynamically scale buffer_size for off-policy algorithms to prevent 78GB RAM pre-allocation
-    # Each episode of 750 steps with a 647-float obs takes ~15.75MB, so:
-    # - 5000 episodes = 78.75 GB RAM
-    # - 200 episodes = 3.15 GB RAM (Perfect for consumer laptops!)
     if algo in ["qmix", "vdn", "iql", "qmix_ns", "vdn_ns", "iql_ns"]:
         cmd.append("buffer_size=200")
-        
-        # Scale exploration decay based on agent architecture and episode limit:
-        # - CNN Agent has natural spatial bias and weight sharing, learning grid geometry 10x faster.
-        #   We can safely decay epsilon in exactly 100 episodes (100 * episode_limit) so coverage rate climbs immediately!
-        # - RNN/MLP Agent is geometry-blind and needs longer (333 * episode_limit) to learn grid adjacency.
         episodes = 100 if agent == "cnn" else 333
         anneal_steps = episodes * episode_limit
         cmd.append(f"epsilon_anneal_time={anneal_steps}")
-        
-        # Reduce batch_size from 32 episodes to 8 episodes.
-        # Since each episode is episode_limit steps, batch_size=8 executes 4x faster on CPU!
         cmd.append("batch_size=8")
         
         print("[!] Off-policy algorithm detected.")
         print(f"    -> Scaling 'buffer_size' to 200 episodes (~3.1 GB RAM)")
-        print(f"    -> Tailoring 'epsilon_anneal_time' to {anneal_steps:,} steps ({episodes} episodes of exploration) for {agent.upper()} agent")
+        print(f"    -> Tailoring 'epsilon_anneal_time' to {anneal_steps:,} steps ({episodes} episodes) for {agent.upper()} agent")
         print(f"    -> Optimizing 'batch_size' to 8 episodes for 4x faster CPU training execution")
 
     if individual_rewards:
         cmd.append("common_reward=False")
 
-    # Append any extra sacred-style overrides
     cmd.extend(extra_args)
 
     print(f"\n{'='*70}")
     print(f"  EPyMARL Training: {exp_name}")
     print(f"  Algorithm: {algo.upper()}")
     print(f"  Agent Architecture: {agent.upper()}")
-    print(f"  Environment: DSSE Coverage (4 drones, 25x25 grid)")
+    print(f"  Environment: DSSE {env_type.upper()} (4 drones, 25x25 grid)")
     print(f"  Timesteps: {t_max:,}")
     print(f"  Individual Rewards: {individual_rewards}")
     print(f"{'='*70}\n")
 
-    # We need to inject our registration before EPyMARL's main.py runs.
-    # The cleanest way is to set PYTHONPATH and use a bootstrap approach.
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{SRC_DIR}:{os.path.join(EPYMARL_DIR, 'src')}:{env.get('PYTHONPATH', '')}"
 
-    # Create a bootstrap script that registers our env then calls EPyMARL's main
     bootstrap_path = os.path.join(SRC_DIR, "_epymarl_bootstrap.py")
     bootstrap_content = f"""import sys
 import os
 
-# Workaround for old tensorboard-logger protobuf issue
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-# Ensure paths
 sys.path.insert(0, "{SRC_DIR}")
 sys.path.insert(0, "{os.path.join(EPYMARL_DIR, 'src')}")
 
-# Register DSSE environment
 from envs import REGISTRY
 from epymarl_env_adapter import DSSEMultiAgentEnv
+from tracking.epymarl_tracking_env_adapter import DSSETrackingMultiAgentEnv
 
 def dsse_fn(**kwargs):
     common_reward = kwargs.pop("common_reward", True)
@@ -243,10 +226,19 @@ def dsse_fn(**kwargs):
         **kwargs,
     )
 
-REGISTRY["dsse"] = dsse_fn
-print("[✓] DSSE environment registered with EPyMARL (via bootstrap).")
+def dsse_tracking_fn(**kwargs):
+    common_reward = kwargs.pop("common_reward", True)
+    reward_scalarisation = kwargs.pop("reward_scalarisation", "sum")
+    seed = kwargs.pop("seed", None)
+    return DSSETrackingMultiAgentEnv(
+        seed=seed,
+        **kwargs,
+    )
 
-# Now run EPyMARL's main with overridden __file__ in globals
+REGISTRY["dsse"] = dsse_fn
+REGISTRY["dsse_tracking"] = dsse_tracking_fn
+print("[✓] DSSE coverage & tracking environments registered with EPyMARL (via bootstrap).")
+
 if __name__ == "__main__":
     sys.argv[0] = "{main_script}"
     g = dict(globals())
@@ -256,7 +248,6 @@ if __name__ == "__main__":
     with open(bootstrap_path, "w") as f:
         f.write(bootstrap_content)
 
-    # Replace main script with bootstrap
     cmd[1] = bootstrap_path
 
     print(f"[→] Running: {' '.join(cmd)}\n")
@@ -265,12 +256,17 @@ if __name__ == "__main__":
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="EPyMARL Training Launcher for DSSE Coverage Drone Swarm"
+        description="EPyMARL Training Launcher for DSSE Drone Swarm"
     )
     parser.add_argument(
         "--algo", type=str, default="qmix",
         choices=["qmix", "vdn", "iql", "coma", "mappo", "ippo", "maa2c", "ia2c", "pac_ns"],
         help="MARL algorithm to train with (default: qmix)"
+    )
+    parser.add_argument(
+        "--env_type", type=str, default="coverage",
+        choices=["coverage", "tracking"],
+        help="Mission environment type (default: coverage)"
     )
     parser.add_argument(
         "--name", type=str, default="dsse_experiment",
@@ -303,21 +299,16 @@ def parse_args():
 if __name__ == "__main__":
     args, extra_args = parse_args()
 
-    # Apply the disable self healing override if requested
     if args.disable_self_healing:
         extra_args.append("env_args.compensation_horizon=0")
 
     print(f"\n{'='*70}")
-    print(f"  EPyMARL DSSE Training Pipeline")
+    print(f"  EPyMARL DSSE Training Pipeline ({args.env_type.upper()})")
     print(f"{'='*70}\n")
 
-    # Step 1: Ensure EPyMARL is cloned
     ensure_epymarl()
+    write_dsse_env_config(env_type=args.env_type, timestep_limit=args.episode_limit)
 
-    # Step 2: Write DSSE environment YAML config with custom episode limit
-    write_dsse_env_config(timestep_limit=args.episode_limit)
-
-    # Step 3: Run training
     run_training(
         algo=args.algo,
         exp_name=args.name,
@@ -325,6 +316,7 @@ if __name__ == "__main__":
         individual_rewards=args.individual_rewards,
         agent=args.agent,
         episode_limit=args.episode_limit,
+        env_type=args.env_type,
         extra_args=extra_args,
     )
 

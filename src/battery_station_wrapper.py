@@ -67,13 +67,14 @@ class BatteryStationWrapper(BaseParallelWrapper):
         # FIX: DSSE overwrites reward_scheme in reset(). We must re-apply our fixed values.
         # This ensures reward_poc remains 0.0 and rewards stay flat/predictable.
         base_env = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
-        base_env.reward_scheme.update({
-            "default": -0.1,
-            "exceed_timestep": 0.0,
-            "search_cell": 5.0,
-            "done": 500.0,
-            "reward_poc": 0.0,
-        })
+        if hasattr(base_env, "reward_scheme") and isinstance(base_env.reward_scheme, dict):
+            base_env.reward_scheme.update({
+                "default": -0.1,
+                "exceed_timestep": 0.0,
+                "search_cell": 5.0,
+                "done": 500.0,
+                "reward_poc": 0.0,
+            })
         
         self.current_step = 0
         for agent in self.env.possible_agents:
