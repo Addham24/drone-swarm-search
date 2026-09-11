@@ -50,6 +50,7 @@ from global_reward_wrapper import GlobalRewardWrapper
 from modules.agents.cnn_agent import CNNAgent
 from modules.agents.rnn_agent import RNNAgent
 
+from train_rspo_v2_vanilla import RSPOModelV2
 from train_rspo_vanilla import RSPOModel as RSPOModelVanilla
 from train_rspo_cnn_cov import RSPOModel as RSPOModelSelfHeal
 from train_mappo_vanilla import CNNModel as MAPPOModelVanilla
@@ -116,52 +117,37 @@ class DirectPyTorchPolicyWrapper:
         mat_t = th.tensor(matrix, dtype=th.float32).unsqueeze(0)
         with th.no_grad():
             obs_dict = {"obs": (pos_t, mat_t)}
-            q_values, _ = self.model(obs_dict)
-            action = int(q_values.argmax(dim=-1).item())
+            logits, _ = self.model(obs_dict, [], None)
+            action = int(logits.argmax(dim=-1).item())
         return action
 
     def stop(self): pass
 
 
 def load_rllib_policy(algo_type, env_name, model_name, custom_model_cls, checkpoint_path):
-    policy_state_path = os.path.join(checkpoint_path, "policies", "default_policy", "policy_state.pkl")
-    if not os.path.exists(policy_state_path):
-        policy_state_path = os.path.join(checkpoint_path, "policy_state.pkl")
+    from gymnasium.spaces import Box, Tuple as GymTuple, Discrete
+    obs_space = GymTuple([Box(-1.0, 1.0, (22,), dtype=np.float32), Box(0.0, 1.0, (25, 25), dtype=np.float32)])
+    act_space = Discrete(9)
 
-    with open(policy_state_path, "rb") as f:
-        policy_state = VersionCompatibilityUnpickler(f).load()
+    model = custom_model_cls(obs_space, act_space, 9, {}, model_name)
 
-    if algo_type == "dqn":
-        from gymnasium.spaces import Box, Tuple as GymTuple
-        dummy_obs_space = GymTuple([Box(-1.0, 1.0, (22,), dtype=np.float32), Box(0.0, 1.0, (25, 25), dtype=np.float64)])
-        model = MAPPOModelVanilla(dummy_obs_space, Box(0, 8, (), dtype=np.int64), 9, {}, model_name)
+    if checkpoint_path.endswith(".pt"):
+        ckpt = th.load(checkpoint_path, map_location="cpu", weights_only=False)
+        tensor_weights = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+        model.load_state_dict(tensor_weights, strict=False)
+    else:
+        policy_state_path = os.path.join(checkpoint_path, "policies", "default_policy", "policy_state.pkl")
+        if not os.path.exists(policy_state_path):
+            policy_state_path = os.path.join(checkpoint_path, "policy_state.pkl")
+
+        with open(policy_state_path, "rb") as f:
+            policy_state = VersionCompatibilityUnpickler(f).load()
+
         if "weights" in policy_state and isinstance(policy_state["weights"], dict):
             tensor_weights = {k: th.from_numpy(v) if not isinstance(v, th.Tensor) else v for k, v in policy_state["weights"].items()}
             model.load_state_dict(tensor_weights, strict=False)
-        return DirectPyTorchPolicyWrapper(model)
 
-    ModelCatalog.register_custom_model(model_name, custom_model_cls)
-    register_env(env_name, lambda cfg: ParallelPettingZooEnv(create_vanilla_env() if "Vanilla" in env_name else create_selfheal_env()))
-
-    rllib_config = (
-        PPOConfig()
-        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
-        .environment(env=env_name)
-        .env_runners(num_env_runners=0)
-        .training(model={"custom_model": model_name, "_disable_preprocessor_api": True})
-        .experimental(_disable_preprocessor_api=True, _validate_config=False)
-        .framework(framework="torch")
-    )
-
-    algo = rllib_config.build()
-    policy = algo.get_policy("default_policy")
-    if "weights" in policy_state and isinstance(policy_state["weights"], dict):
-        tensor_weights = {k: th.from_numpy(v) if not isinstance(v, th.Tensor) else v for k, v in policy_state["weights"].items()}
-        policy.model.load_state_dict(tensor_weights, strict=False)
-    else:
-        policy.set_state(policy_state)
-
-    return algo
+    return DirectPyTorchPolicyWrapper(model)
 
 
 def evaluate_rllib_model(algo, env_fn, num_seeds=100, seed_start=1000):
@@ -318,14 +304,14 @@ if __name__ == "__main__":
 
     rllib_models = {
         "RSPO_Vanilla": {
-            "algo_type": "ppo", "env_name": "DSSE_Coverage_RSPO_Vanilla_Eval", "model_name": "RSPOModelVanilla_Eval",
-            "model_cls": RSPOModelVanilla, "env_fn": create_vanilla_env,
-            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/RSPO_vanilla_v1/PPO_DSSE_Coverage_RSPO_Vanilla_5bfc7_00000_0_2026-08-01_04-35-01/checkpoint_000199"),
+            "algo_type": "ppo", "env_name": "DSSE_Coverage_RSPO_Vanilla_Eval", "model_name": "RSPOModelV2_Vanilla_Eval",
+            "model_cls": RSPOModelV2, "env_fn": create_vanilla_env,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/RSPO_V2_Vanilla_RSPO_v2/RSPOPPO_DSSE_Coverage_RSPO_V2_Vanilla_45eb7_00000_0_2026-09-04_06-38-43/checkpoint_000139"),
         },
         "RSPO_SelfHeal": {
-            "algo_type": "ppo", "env_name": "DSSE_Coverage_RSPO_SelfHeal_Eval", "model_name": "RSPOModelSelfHeal_Eval",
-            "model_cls": RSPOModelSelfHeal, "env_fn": create_selfheal_env,
-            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/RSPO_rspo_v1/PPO_DSSE_Coverage_RSPO_394ce_00000_0_2026-07-26_00-36-29/checkpoint_000165"),
+            "algo_type": "ppo", "env_name": "DSSE_Coverage_RSPO_SelfHeal_Eval", "model_name": "RSPOModelV2_SelfHeal_Eval",
+            "model_cls": RSPOModelV2, "env_fn": create_selfheal_env,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/RSPO_V2_SelfHeal_rspo_v2_selfheal/RSPOPPO_DSSE_Coverage_RSPO_V2_SelfHeal_86fd5_00000_0_2026-09-04_06-40-32/checkpoint_000230"),
         },
         "MAPPO_Vanilla": {
             "algo_type": "ppo", "env_name": "DSSE_Coverage_MAPPO_Vanilla_Eval", "model_name": "MAPPOModelVanilla_Eval",
@@ -335,7 +321,7 @@ if __name__ == "__main__":
         "MAPPO_SelfHeal": {
             "algo_type": "ppo", "env_name": "DSSE_Coverage_MAPPO_SelfHeal_Eval", "model_name": "MAPPOModelSelfHeal_Eval",
             "model_cls": MAPPOModelVanilla, "env_fn": create_selfheal_env,
-            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/MAPPO_selfheal_comparison/PPO_DSSE_Coverage_0261b_00000_0_2026-05-07_12-54-04/checkpoint_000023"),
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/MAPPO_selfheal_final_v2/checkpoints/checkpoint_iter_980_ts_10002432.pt"),
         },
         "I-DQN_Vanilla": {
             "algo_type": "dqn", "env_name": "DSSE_Coverage_IDQN_Vanilla_Eval", "model_name": "IDQNModelVanilla_Eval",

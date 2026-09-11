@@ -1,0 +1,658 @@
+"""
+Master Dashboard Generation Suite (4 Complete Dashboards x 12 MARL Models x 2 Resilience Metrics)
+==================================================================================================
+Generates 4 distinct publication/thesis master presentation dashboards with 2 explicit Resilience Metrics:
+  1. Resilience Index (RI %): Coverage(Current Regimen) / Coverage(Zero Faults) * 100%
+  2. Crash-Sector Recovery Rate (CSRR %): % of unsearched cells in crash sectors recovered by surviving teammates
+
+Dashboards (Saved to ~/Desktop and src/):
+  - PERFECT_dashboard1_active_faults_0005.png
+  - PERFECT_dashboard2_zero_faults.png
+  - PERFECT_dashboard3_50x50_spatial_scaling.png
+  - PERFECT_dashboard4_obstacle_airspaces.png
+  - evaluation_all_4_dashboards_summary.csv
+"""
+
+import os
+import sys
+import gc
+import pickle
+import numpy as np
+import pandas as pd
+import torch as th
+import matplotlib.pyplot as plt
+
+# Add source paths
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+EPYMARL_SRC = os.path.join(SRC_DIR, "epymarl", "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+if EPYMARL_SRC not in sys.path:
+    sys.path.insert(0, EPYMARL_SRC)
+
+import ray
+from ray.tune.registry import register_env
+from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
+
+from DSSE import CoverageDroneSwarmSearch
+from DSSE.environment.wrappers import RetainDronePosWrapper, AllPositionsWrapper
+from battery_station_wrapper import BatteryStationWrapper
+from global_reward_wrapper import GlobalRewardWrapper
+from obstacle_airspace_wrapper import ObstacleAirspaceWrapper
+from spatial_rescaling_wrapper import SpatialRescalingWrapper
+from modules.agents.cnn_agent import CNNAgent
+from modules.agents.rnn_agent import RNNAgent
+
+from train_rspo_v2_vanilla import RSPOModelV2
+from train_rspo_vanilla import RSPOModel as RSPOModelVanilla
+from train_rspo_cnn_cov import RSPOModel as RSPOModelSelfHeal
+from train_mappo_vanilla import CNNModel as MAPPOModelVanilla
+
+
+# ── Mock Args for EPyMARL Agent ──
+class MockArgs:
+    def __init__(self, use_rnn=True, hidden_dim=128, n_actions=9):
+        self.use_rnn = use_rnn
+        self.hidden_dim = hidden_dim
+        self.n_actions = n_actions
+
+
+# ── Custom Pickle Loader for RLlib ──
+class DummyVersion:
+    def __init__(self, *args, **kwargs): pass
+    def __setstate__(self, state): pass
+
+class VersionCompatibilityUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == "Version" or "version" in module:
+            return DummyVersion
+        return super().find_class(module, name)
+
+
+class DirectPyTorchPolicyWrapper:
+    def __init__(self, model):
+        self.model = model
+        self.model.eval()
+
+    def compute_single_action(self, observation, policy_id="default_policy"):
+        pos, matrix = observation
+        pos_t = th.tensor(pos, dtype=th.float32).unsqueeze(0)
+        mat_t = th.tensor(matrix, dtype=th.float32).unsqueeze(0)
+        with th.no_grad():
+            obs_dict = {"obs": (pos_t, mat_t)}
+            logits, _ = self.model(obs_dict, [], None)
+            action = int(logits.argmax(dim=-1).item())
+        return action
+
+    def stop(self): pass
+
+
+def load_rllib_policy(custom_model_cls, model_name, checkpoint_path):
+    from gymnasium.spaces import Box, Tuple as GymTuple, Discrete
+    obs_space = GymTuple([Box(-1.0, 1.0, (22,), dtype=np.float32), Box(0.0, 1.0, (25, 25), dtype=np.float32)])
+    act_space = Discrete(9)
+
+    model = custom_model_cls(obs_space, act_space, 9, {}, model_name)
+
+    if checkpoint_path.endswith(".pt"):
+        ckpt = th.load(checkpoint_path, map_location="cpu", weights_only=False)
+        tensor_weights = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+        model.load_state_dict(tensor_weights, strict=False)
+    else:
+        policy_state_path = os.path.join(checkpoint_path, "policies", "default_policy", "policy_state.pkl")
+        if not os.path.exists(policy_state_path):
+            policy_state_path = os.path.join(checkpoint_path, "policy_state.pkl")
+
+        with open(policy_state_path, "rb") as f:
+            policy_state = VersionCompatibilityUnpickler(f).load()
+
+        if "weights" in policy_state and isinstance(policy_state["weights"], dict):
+            tensor_weights = {k: th.from_numpy(v) if not isinstance(v, th.Tensor) else v for k, v in policy_state["weights"].items()}
+            model.load_state_dict(tensor_weights, strict=False)
+
+    return DirectPyTorchPolicyWrapper(model)
+
+
+# ── Environment Creators ──
+
+def create_25x25_fault0005_vanilla_env():
+    matrix_path = os.path.join(SRC_DIR, "uniform_matrix_25.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=750, drone_amount=4, prob_matrix_path=matrix_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=125, depletion_rate=1, charge_rate=15, fault_prob=0.0005)
+    env.COMPENSATION_BONUS = 0.0
+    env.COMPENSATION_PENALTY = 0.0
+    env.COMPENSATION_HORIZON = 0
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_25x25_fault0005_selfheal_env():
+    matrix_path = os.path.join(SRC_DIR, "uniform_matrix_25.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=750, drone_amount=4, prob_matrix_path=matrix_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=125, depletion_rate=1, charge_rate=15, fault_prob=0.0005)
+    env.COMPENSATION_BONUS = 2.5
+    env.COMPENSATION_PENALTY = -0.5
+    env.COMPENSATION_HORIZON = 100
+    # NO GlobalRewardWrapper — matches RSPO/MAPPO training configs exactly
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_25x25_zero_fault_vanilla_env():
+    matrix_path = os.path.join(SRC_DIR, "uniform_matrix_25.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=750, drone_amount=4, prob_matrix_path=matrix_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=125, depletion_rate=1, charge_rate=15, fault_prob=0.0)
+    env.COMPENSATION_BONUS = 0.0
+    env.COMPENSATION_PENALTY = 0.0
+    env.COMPENSATION_HORIZON = 0
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_25x25_zero_fault_selfheal_env():
+    matrix_path = os.path.join(SRC_DIR, "uniform_matrix_25.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=750, drone_amount=4, prob_matrix_path=matrix_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=125, depletion_rate=1, charge_rate=15, fault_prob=0.0)
+    env.COMPENSATION_BONUS = 2.5
+    env.COMPENSATION_PENALTY = -0.5
+    env.COMPENSATION_HORIZON = 100
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_50x50_vanilla_env():
+    matrix_path = os.path.join(SRC_DIR, "uniform_matrix_50.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=1500, drone_amount=4, prob_matrix_path=matrix_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=250, depletion_rate=1, charge_rate=15, fault_prob=0.0005)
+    env.COMPENSATION_BONUS = 0.0
+    env.COMPENSATION_PENALTY = 0.0
+    env.COMPENSATION_HORIZON = 0
+    env = SpatialRescalingWrapper(env, target_grid_size=25)
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_50x50_selfheal_env():
+    matrix_path = os.path.join(SRC_DIR, "uniform_matrix_50.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=1500, drone_amount=4, prob_matrix_path=matrix_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=250, depletion_rate=1, charge_rate=15, fault_prob=0.0005)
+    env.COMPENSATION_BONUS = 2.5
+    env.COMPENSATION_PENALTY = -0.5
+    env.COMPENSATION_HORIZON = 100
+    env = SpatialRescalingWrapper(env, target_grid_size=25)
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_25x25_obstacle_vanilla_env():
+    obstacle_mask = np.load(os.path.join(SRC_DIR, "obstacle_skyline_25.npy"))
+    prob_path = os.path.join(SRC_DIR, "obstacle_prob_matrix_25.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=750, drone_amount=4, prob_matrix_path=prob_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=125, depletion_rate=1, charge_rate=15, fault_prob=0.0005)
+    env.COMPENSATION_BONUS = 0.0
+    env.COMPENSATION_PENALTY = 0.0
+    env.COMPENSATION_HORIZON = 0
+    env = ObstacleAirspaceWrapper(env, obstacle_mask)
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+def create_25x25_obstacle_selfheal_env():
+    obstacle_mask = np.load(os.path.join(SRC_DIR, "obstacle_skyline_25.npy"))
+    prob_path = os.path.join(SRC_DIR, "obstacle_prob_matrix_25.npy")
+    env = CoverageDroneSwarmSearch(timestep_limit=750, drone_amount=4, prob_matrix_path=prob_path)
+    env.reward_scheme = {"default": -0.1, "exceed_timestep": 0.0, "search_cell": 5.0, "done": 500.0, "reward_poc": 0.0}
+    env = AllPositionsWrapper(env)
+    env = BatteryStationWrapper(env, max_battery=125, depletion_rate=1, charge_rate=15, fault_prob=0.0005)
+    env.COMPENSATION_BONUS = 2.5
+    env.COMPENSATION_PENALTY = -0.5
+    env.COMPENSATION_HORIZON = 100
+    env = ObstacleAirspaceWrapper(env, obstacle_mask)
+    return RetainDronePosWrapper(env, [(0, 0), (0, 1), (1, 0), (1, 1)])
+
+
+# ── Helper to Get Base Probability Matrix ──
+def _get_base_prob_matrix(env):
+    base = env
+    while hasattr(base, "env"):
+        base = base.env
+    if hasattr(base, "probability_matrix") and hasattr(base.probability_matrix, "get_matrix"):
+        return base.probability_matrix.get_matrix()
+    return None
+
+
+# ── Evaluators with Crash-Sector Recovery Rate (CSRR) ──
+
+def evaluate_rllib_model(algo, env_fn, num_seeds=25, seed_start=1000):
+    episode_records = []
+    for seed in range(seed_start, seed_start + num_seeds):
+        np.random.seed(seed)
+        th.manual_seed(seed)
+        env = env_fn()
+        obs, infos = env.reset(seed=seed)
+        batt_samples = []
+        chg_steps = 0
+        step_idx = 0
+        ep_crashes = 0
+        crash_unsearched_masks = []
+
+        while env.agents:
+            step_idx += 1
+            actions = {}
+            for agent in env.agents:
+                if agent in obs:
+                    actions[agent] = algo.compute_single_action(observation=obs[agent], policy_id="default_policy")
+
+            obs, rewards, terminations, truncations, infos = env.step(actions)
+
+            for a, info in infos.items():
+                if isinstance(info, dict):
+                    batt = info.get("battery")
+                    if batt is not None:
+                        batt_samples.append(batt)
+                    if info.get("charging", False):
+                        chg_steps += 1
+                    if info.get("stranded_event", False):
+                        ep_crashes += 1
+                        crash_coords = info.get("crash_coords")
+                        prob_mat = _get_base_prob_matrix(env)
+                        if crash_coords is not None and prob_mat is not None:
+                            cy, cx = crash_coords
+                            H, W = prob_mat.shape
+                            y_min, y_max = max(0, cy - 2), min(H, cy + 3)
+                            x_min, x_max = max(0, cx - 2), min(W, cx + 3)
+                            unsearched_sub = (prob_mat[y_min:y_max, x_min:x_max] > 0.0).copy()
+                            crash_unsearched_masks.append(((y_min, y_max, x_min, x_max), unsearched_sub))
+
+        prob_mat = _get_base_prob_matrix(env)
+        sample_info = next(iter(infos.values()), {}) if infos else {}
+        cov = sample_info.get("coverage_rate", 0.0) if isinstance(sample_info, dict) else 0.0
+        avg_batt = np.mean(batt_samples) if batt_samples else 0.0
+
+        # Compute CSRR (Crash-Sector Recovery Rate)
+        csrr = 100.0
+        if crash_unsearched_masks and prob_mat is not None:
+            recovered_pcts = []
+            for (y_min, y_max, x_min, x_max), unsearched_at_crash in crash_unsearched_masks:
+                still_unsearched = (prob_mat[y_min:y_max, x_min:x_max] > 0.0)
+                initial_count = unsearched_at_crash.sum()
+                if initial_count > 0:
+                    recovered = (unsearched_at_crash & (~still_unsearched)).sum()
+                    recovered_pcts.append((recovered / float(initial_count)) * 100.0)
+                else:
+                    recovered_pcts.append(100.0)
+            csrr = float(np.mean(recovered_pcts))
+
+        episode_records.append({
+            "seed": seed,
+            "coverage_rate": cov,
+            "agent_deaths": ep_crashes,
+            "avg_battery_level": avg_batt,
+            "charging_steps": chg_steps,
+            "csrr": csrr,
+        })
+    return episode_records
+
+
+def evaluate_epymarl_model(model_th_path, env_fn, num_seeds=25, seed_start=1000):
+    state_dict = th.load(model_th_path, map_location=lambda storage, loc: storage)
+    if "fc1.weight" in state_dict:
+        hidden_dim = state_dict["fc1.weight"].shape[0]
+        mock_args = MockArgs(use_rnn=True, hidden_dim=hidden_dim, n_actions=9)
+        agent = RNNAgent(input_shape=651, args=mock_args)
+    else:
+        hidden_dim = state_dict["fc2.weight"].shape[1] if "fc2.weight" in state_dict else 128
+        mock_args = MockArgs(use_rnn=True, hidden_dim=hidden_dim, n_actions=9)
+        agent = CNNAgent(input_shape=651, args=mock_args)
+
+    agent.load_state_dict(state_dict, strict=False)
+    agent.eval()
+
+    episode_records = []
+    for seed in range(seed_start, seed_start + num_seeds):
+        np.random.seed(seed)
+        th.manual_seed(seed)
+        env = env_fn()
+        obs_dict, info_dict = env.reset(seed=seed)
+        agents = list(env.possible_agents)
+        n_agents = len(agents)
+        hidden_states = agent.init_hidden().expand(n_agents, -1).clone()
+        obs_size = 22 + 625
+        batt_samples = []
+        chg_steps = 0
+        step_idx = 0
+        ep_crashes = 0
+        crash_unsearched_masks = []
+
+        while env.agents:
+            step_idx += 1
+            inputs = []
+            for i, agent_name in enumerate(agents):
+                if agent_name in obs_dict:
+                    positions, matrix = obs_dict[agent_name]
+                    flat_obs = np.concatenate([positions.astype(np.float32).flatten(), matrix.astype(np.float32).flatten()])
+                else:
+                    flat_obs = np.zeros(obs_size, dtype=np.float32)
+
+                agent_id_onehot = np.zeros(n_agents, dtype=np.float32)
+                agent_id_onehot[i] = 1.0
+                inputs.append(np.concatenate([flat_obs, agent_id_onehot]))
+
+            inputs_tensor = th.tensor(np.stack(inputs), dtype=th.float32)
+            with th.no_grad():
+                q_logits, hidden_states = agent(inputs_tensor, hidden_states)
+                actions_tensor = q_logits.argmax(dim=-1)
+
+            actions = {agent_name: int(actions_tensor[i].item()) for i, agent_name in enumerate(agents) if agent_name in env.agents}
+            obs_dict, rewards, terminations, truncations, info_dict = env.step(actions)
+
+            for a, info in info_dict.items():
+                if isinstance(info, dict):
+                    batt = info.get("battery")
+                    if batt is not None:
+                        batt_samples.append(batt)
+                    if info.get("charging", False):
+                        chg_steps += 1
+                    if info.get("stranded_event", False):
+                        ep_crashes += 1
+                        crash_coords = info.get("crash_coords")
+                        prob_mat = _get_base_prob_matrix(env)
+                        if crash_coords is not None and prob_mat is not None:
+                            cy, cx = crash_coords
+                            H, W = prob_mat.shape
+                            y_min, y_max = max(0, cy - 2), min(H, cy + 3)
+                            x_min, x_max = max(0, cx - 2), min(W, cx + 3)
+                            unsearched_sub = (prob_mat[y_min:y_max, x_min:x_max] > 0.0).copy()
+                            crash_unsearched_masks.append(((y_min, y_max, x_min, x_max), unsearched_sub))
+
+        prob_mat = _get_base_prob_matrix(env)
+        sample_info = next(iter(info_dict.values()), {}) if info_dict else {}
+        cov = sample_info.get("coverage_rate", 0.0) if isinstance(sample_info, dict) else 0.0
+        avg_batt = np.mean(batt_samples) if batt_samples else 0.0
+
+        csrr = 100.0
+        if crash_unsearched_masks and prob_mat is not None:
+            recovered_pcts = []
+            for (y_min, y_max, x_min, x_max), unsearched_at_crash in crash_unsearched_masks:
+                still_unsearched = (prob_mat[y_min:y_max, x_min:x_max] > 0.0)
+                initial_count = unsearched_at_crash.sum()
+                if initial_count > 0:
+                    recovered = (unsearched_at_crash & (~still_unsearched)).sum()
+                    recovered_pcts.append((recovered / float(initial_count)) * 100.0)
+                else:
+                    recovered_pcts.append(100.0)
+            csrr = float(np.mean(recovered_pcts))
+
+        episode_records.append({
+            "seed": seed,
+            "coverage_rate": cov,
+            "agent_deaths": ep_crashes,
+            "avg_battery_level": avg_batt,
+            "charging_steps": chg_steps,
+            "csrr": csrr,
+        })
+    return episode_records
+
+
+# ── Dashboard Plotting Function with Resilience Metrics ──
+COLOR_MAP = {
+    "RSPO_Vanilla": "#8A2BE2",    # Dark Violet (Our Method)
+    "RSPO_SelfHeal": "#BA55D3",   # Medium Orchid
+    "MAPPO_Vanilla": "#1F77B4",   # Standard Blue
+    "MAPPO_SelfHeal": "#6BAED6",  # Light Blue
+    "QMIX_Vanilla": "#FF7F0E",    # Orange
+    "QMIX_SelfHeal": "#FDBE85",   # Light Orange
+    "MAA2C_Vanilla": "#17BECF",   # Cyan / Teal
+    "MAA2C_SelfHeal": "#9EDAE5",  # Light Teal
+    "I-DQN_Vanilla": "#2CA02C",   # Green
+    "I-DQN_SelfHeal": "#A1D99B",  # Light Green
+    "COMA_Vanilla": "#D62728",    # Red
+    "COMA_SelfHeal": "#FF9896",   # Light Red
+}
+
+def generate_5panel_dashboard(df_summary, title, save_path):
+    bar_colors = [COLOR_MAP.get(alg, "#333333") for alg in df_summary["Algorithm"]]
+
+    fig, axs = plt.subplots(2, 3, figsize=(22, 11))
+
+    # Panel 1: Coverage Rate (%)
+    axs[0, 0].bar(df_summary["Algorithm"], df_summary["Coverage Rate Mean (%)"], yerr=df_summary["Coverage 95% CI (±%)"], capsize=3, color=bar_colors, edgecolor="black", linewidth=0.5)
+    axs[0, 0].set_title("1. Mean Area Coverage Rate (%) [Higher is Better]", fontweight='bold', fontsize=10)
+    axs[0, 0].set_ylim(0, 100)
+    axs[0, 0].tick_params(axis='x', rotation=40, labelsize=7)
+    axs[0, 0].grid(axis='y', linestyle='--', alpha=0.7)
+    for bar in axs[0, 0].patches:
+        h = bar.get_height()
+        if h > 0:
+            axs[0, 0].text(bar.get_x() + bar.get_width()/2., h + 1, f'{h:.1f}%', ha='center', va='bottom', fontsize=6, fontweight='bold')
+
+    # Panel 2: Agent Attrition Rate (Crashes/Ep)
+    axs[0, 1].bar(df_summary["Algorithm"], df_summary["Agent Attrition Rate (Crashes/Ep)"], color=bar_colors, edgecolor="black", linewidth=0.5)
+    axs[0, 1].set_title("2. Agent Attrition Rate (Crashes / Ep) [Lower is Better]", fontweight='bold', fontsize=10)
+    axs[0, 1].set_ylim(0, 4.5)
+    axs[0, 1].tick_params(axis='x', rotation=40, labelsize=7)
+    axs[0, 1].grid(axis='y', linestyle='--', alpha=0.7)
+    for bar in axs[0, 1].patches:
+        h = bar.get_height()
+        axs[0, 1].text(bar.get_x() + bar.get_width()/2., h + 0.05, f'{h:.2f}', ha='center', va='bottom', fontsize=6, fontweight='bold')
+
+    # Panel 3: Fleet Battery Health Mean (%)
+    axs[0, 2].bar(df_summary["Algorithm"], df_summary["Fleet Battery Level Mean (%)"], color=bar_colors, edgecolor="black", linewidth=0.5)
+    axs[0, 2].set_title("3. Fleet Battery Health Mean (%) [Higher is Better]", fontweight='bold', fontsize=10)
+    axs[0, 2].tick_params(axis='x', rotation=40, labelsize=7)
+    axs[0, 2].grid(axis='y', linestyle='--', alpha=0.7)
+    for bar in axs[0, 2].patches:
+        h = bar.get_height()
+        if h > 0:
+            axs[0, 2].text(bar.get_x() + bar.get_width()/2., h + 0.5, f'{h:.1f}', ha='center', va='bottom', fontsize=6, fontweight='bold')
+
+    # Panel 4: Resilience Index (RI %)
+    axs[1, 0].bar(df_summary["Algorithm"], df_summary["Resilience Index (RI %)"], color=bar_colors, edgecolor="black", linewidth=0.5)
+    axs[1, 0].set_title("4. Resilience Index (RI %) [Fault Retained Capacity]", fontweight='bold', fontsize=10)
+    axs[1, 0].set_ylim(0, 115)
+    axs[1, 0].tick_params(axis='x', rotation=40, labelsize=7)
+    axs[1, 0].grid(axis='y', linestyle='--', alpha=0.7)
+    for bar in axs[1, 0].patches:
+        h = bar.get_height()
+        if h > 0:
+            axs[1, 0].text(bar.get_x() + bar.get_width()/2., h + 1, f'{h:.1f}%', ha='center', va='bottom', fontsize=6, fontweight='bold')
+
+    # Panel 5: Crash-Sector Recovery Rate (CSRR %)
+    axs[1, 1].bar(df_summary["Algorithm"], df_summary["Crash-Sector Recovery Rate (CSRR %)"], color=bar_colors, edgecolor="black", linewidth=0.5)
+    axs[1, 1].set_title("5. Crash-Sector Recovery Rate (CSRR %) [Gap-Filling]", fontweight='bold', fontsize=10)
+    axs[1, 1].set_ylim(0, 115)
+    axs[1, 1].tick_params(axis='x', rotation=40, labelsize=7)
+    axs[1, 1].grid(axis='y', linestyle='--', alpha=0.7)
+    for bar in axs[1, 1].patches:
+        h = bar.get_height()
+        if h > 0:
+            axs[1, 1].text(bar.get_x() + bar.get_width()/2., h + 1, f'{h:.1f}%', ha='center', va='bottom', fontsize=6, fontweight='bold')
+
+    # Panel 6: Empty — hide it
+    axs[1, 2].axis('off')
+
+    plt.suptitle(title, fontsize=15, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Saved Dashboard to: {save_path}")
+
+
+def run_suite_and_generate_dashboard(suite_name, dashboard_title, save_path, vanilla_env_fn, selfheal_env_fn, rllib_checkpoints, epymarl_checkpoints, zero_fault_means=None, free_cells=625, num_seeds=25):
+    print(f"\n=================== RUNNING {suite_name} ===================")
+    summary_rows = []
+
+    for model_key, meta in rllib_checkpoints.items():
+        print(f"  Evaluating RLlib Model: {model_key}...")
+        env_fn = vanilla_env_fn if "Vanilla" in model_key else selfheal_env_fn
+        algo = load_rllib_policy(meta["model_cls"], meta["model_name"], meta["path"])
+        records = evaluate_rllib_model(algo, env_fn, num_seeds=num_seeds, seed_start=1000)
+        algo.stop()
+        gc.collect()
+
+        covs = [r["coverage_rate"] * 100 for r in records]
+        deaths = [r["agent_deaths"] for r in records]
+        rewards = [r["coverage_rate"] * free_cells * 5.0 for r in records]
+        batts = [r["avg_battery_level"] for r in records]
+        chg_steps = [r["charging_steps"] for r in records]
+        csrr_list = [r["csrr"] for r in records]
+
+        cov_mean, cov_std = np.mean(covs), np.std(covs)
+        ci95 = 1.96 * (cov_std / np.sqrt(len(covs)))
+
+        # Resilience Index (RI %) = Coverage(Current) / Coverage(Zero-Fault) * 100%
+        zero_cov = zero_fault_means.get(model_key, cov_mean) if zero_fault_means else cov_mean
+        ri_pct = (cov_mean / zero_cov * 100.0) if zero_cov > 0 else 0.0
+
+        summary_rows.append({
+            "Algorithm": model_key, "Framework": "RLlib",
+            "Coverage Rate Mean (%)": round(cov_mean, 2),
+            "Coverage Std (%)": round(cov_std, 2),
+            "Coverage 95% CI (±%)": round(ci95, 2),
+            "Agent Attrition Rate (Crashes/Ep)": round(np.mean(deaths), 2),
+            "Swarm Survival Rate (%)": round((1 - np.mean(deaths)/4.0)*100, 1),
+            "Cumulative Return Mean": round(np.mean(rewards), 2),
+            "Fleet Battery Level Mean (%)": round(np.mean(batts), 2),
+            "Mean Charging Steps": round(np.mean(chg_steps), 1),
+            "Resilience Index (RI %)": round(ri_pct, 2),
+            "Crash-Sector Recovery Rate (CSRR %)": round(np.mean(csrr_list), 2),
+        })
+
+    for model_key, path in epymarl_checkpoints.items():
+        print(f"  Evaluating EPyMARL Model: {model_key}...")
+        if not os.path.isfile(path):
+            print(f"    Warning: Checkpoint not found at {path}. Skipping...")
+            continue
+        env_fn = vanilla_env_fn if "Vanilla" in model_key else selfheal_env_fn
+        records = evaluate_epymarl_model(path, env_fn, num_seeds=num_seeds, seed_start=1000)
+        gc.collect()
+
+        covs = [r["coverage_rate"] * 100 for r in records]
+        deaths = [r["agent_deaths"] for r in records]
+        rewards = [r["coverage_rate"] * free_cells * 5.0 for r in records]
+        batts = [r["avg_battery_level"] for r in records]
+        chg_steps = [r["charging_steps"] for r in records]
+        csrr_list = [r["csrr"] for r in records]
+
+        cov_mean, cov_std = np.mean(covs), np.std(covs)
+        ci95 = 1.96 * (cov_std / np.sqrt(len(covs)))
+
+        zero_cov = zero_fault_means.get(model_key, cov_mean) if zero_fault_means else cov_mean
+        ri_pct = (cov_mean / zero_cov * 100.0) if zero_cov > 0 else 0.0
+
+        summary_rows.append({
+            "Algorithm": model_key, "Framework": "EPyMARL",
+            "Coverage Rate Mean (%)": round(cov_mean, 2),
+            "Coverage Std (%)": round(cov_std, 2),
+            "Coverage 95% CI (±%)": round(ci95, 2),
+            "Agent Attrition Rate (Crashes/Ep)": round(np.mean(deaths), 2),
+            "Swarm Survival Rate (%)": round((1 - np.mean(deaths)/4.0)*100, 1),
+            "Cumulative Return Mean": round(np.mean(rewards), 2),
+            "Fleet Battery Level Mean (%)": round(np.mean(batts), 2),
+            "Mean Charging Steps": round(np.mean(chg_steps), 1),
+            "Resilience Index (RI %)": round(ri_pct, 2),
+            "Crash-Sector Recovery Rate (CSRR %)": round(np.mean(csrr_list), 2),
+        })
+
+    df_summary = pd.DataFrame(summary_rows)
+    generate_5panel_dashboard(df_summary, dashboard_title, save_path)
+    return df_summary
+
+
+if __name__ == "__main__":
+    ray.init(ignore_reinit_error=True)
+    desktop = os.path.expanduser("~/Desktop")
+
+    rllib_checkpoints = {
+        "RSPO_Vanilla": {
+            "model_name": "RSPOModelV2_Vanilla", "model_cls": RSPOModelV2,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/RSPO_V2_Vanilla_RSPO_v2/RSPOPPO_DSSE_Coverage_RSPO_V2_Vanilla_45eb7_00000_0_2026-09-04_06-38-43/checkpoint_000139"),
+        },
+        "RSPO_SelfHeal": {
+            "model_name": "RSPOModelV2_SelfHeal", "model_cls": RSPOModelV2,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/RSPO_V2_SelfHeal_rspo_v2_selfheal/RSPOPPO_DSSE_Coverage_RSPO_V2_SelfHeal_86fd5_00000_0_2026-09-04_06-40-32/checkpoint_000230"),
+        },
+        "MAPPO_Vanilla": {
+            "model_name": "MAPPOModelVanilla", "model_cls": MAPPOModelVanilla,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/MAPPO_vanilla_proper/PPO_DSSE_Coverage_cc7e1_00000_0_2026-07-05_03-37-08/checkpoint_000243"),
+        },
+        "MAPPO_SelfHeal": {
+            "model_name": "MAPPOModelSelfHeal", "model_cls": MAPPOModelVanilla,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/MAPPO_selfheal_final_v2/checkpoints/checkpoint_iter_980_ts_10002432.pt"),
+        },
+        "I-DQN_Vanilla": {
+            "model_name": "IDQNModelVanilla", "model_cls": MAPPOModelVanilla,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_vanilla_I-DQN_vanilla_proper/DQN_DSSE_Coverage_61018_00000_0_2026-07-16_09-47-37/checkpoint_000609"),
+        },
+        "I-DQN_SelfHeal": {
+            "model_name": "IDQNModelSelfHeal", "model_cls": MAPPOModelVanilla,
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_I-DQN_selfheal_proper_pt2/DQN_DSSE_Coverage_8aefa_00000_0_2026-07-16_05-38-15/checkpoint_000565"),
+        },
+    }
+
+    epymarl_checkpoints = {
+        "QMIX_Vanilla": os.path.join(SRC_DIR, "results/models/qmix_true_vanilla_v1_seed533532401_dsse_coverage_2026-07-18 02:06:54.683275/17040000/agent.th"),
+        "QMIX_SelfHeal": os.path.join(SRC_DIR, "results/models/qmix_selfheal_v2_seed533532401_dsse_coverage_2026-07-17 03:23:47.879210/19044000/agent.th"),
+        "MAA2C_Vanilla": os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_vanilla_seed782869923_dsse_coverage_2026-06-16 18:45:27.715438/18795000/agent.th"),
+        "MAA2C_SelfHeal": os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_original_seed776978465_dsse_coverage_2026-07-15 06:30:31.971452/12675000/agent.th"),
+        "COMA_Vanilla": os.path.join(SRC_DIR, "results/models/coma_vanilla_proper_seed452926189_dsse_coverage_2026-07-10 01:59:53.354626/19338000/agent.th"),
+        "COMA_SelfHeal": os.path.join(SRC_DIR, "results/models/coma_selfhealing_final_stable_seed339532096_dsse_coverage_2026-07-06 10:52:47.933607/19986000/agent.th"),
+    }
+
+    NUM_SEEDS = 100
+
+    # ── 1. Run Dashboard 2 First (Zero-Fault Baseline for RI Calculation) ──
+    df_dash2 = run_suite_and_generate_dashboard(
+        "Dashboard 2: Zero-Fault Ideal Baseline (0.0)",
+        "Dashboard 2: Zero-Fault Ideal Environment (fault_prob = 0.0, N=100 seeds)",
+        os.path.join(desktop, "PERFECT_dashboard2_zero_faults.png"),
+        create_25x25_zero_fault_vanilla_env, create_25x25_zero_fault_selfheal_env,
+        rllib_checkpoints, epymarl_checkpoints, zero_fault_means=None, free_cells=625, num_seeds=NUM_SEEDS
+    )
+
+    zero_fault_means = dict(zip(df_dash2["Algorithm"], df_dash2["Coverage Rate Mean (%)"]))
+
+    # ── 2. Dashboard 1: 25x25 Active Fault Injection (0.0005) ──
+    df_dash1 = run_suite_and_generate_dashboard(
+        "Dashboard 1: Active Fault Injection (0.0005)",
+        "Dashboard 1: Active Hardware Fault Injection (fault_prob = 0.0005, N=100 seeds)",
+        os.path.join(desktop, "PERFECT_dashboard1_active_faults_0005.png"),
+        create_25x25_fault0005_vanilla_env, create_25x25_fault0005_selfheal_env,
+        rllib_checkpoints, epymarl_checkpoints, zero_fault_means=zero_fault_means, free_cells=625, num_seeds=NUM_SEEDS
+    )
+
+    # ── 3. Dashboard 3: Zero-Shot Spatial Scaling (50x50 Grid) ──
+    df_dash3 = run_suite_and_generate_dashboard(
+        "Dashboard 3: Zero-Shot Spatial Scaling (50x50 Grid)",
+        "Dashboard 3: Zero-Shot Spatial Scaling (50x50 Grid, T=1500, N=100 seeds)",
+        os.path.join(desktop, "PERFECT_dashboard3_50x50_spatial_scaling.png"),
+        create_50x50_vanilla_env, create_50x50_selfheal_env,
+        rllib_checkpoints, epymarl_checkpoints, zero_fault_means=zero_fault_means, free_cells=2500, num_seeds=NUM_SEEDS
+    )
+
+    # ── 4. Dashboard 4: Obstacle Airspace Resilience (25x25 Layout 3 Skyline) ──
+    df_dash4 = run_suite_and_generate_dashboard(
+        "Dashboard 4: Obstacle Airspace Resilience",
+        "Dashboard 4: Obstacle Airspace Resilience (Layout 3 Skyline, N=100 seeds)",
+        os.path.join(desktop, "PERFECT_dashboard4_obstacle_airspaces.png"),
+        create_25x25_obstacle_vanilla_env, create_25x25_obstacle_selfheal_env,
+        rllib_checkpoints, epymarl_checkpoints, zero_fault_means=zero_fault_means, free_cells=529, num_seeds=NUM_SEEDS
+    )
+
+    # Combine into unified master summary CSV
+    df_dash1["Regimen"] = "25x25 Active Faults (0.0005)"
+    df_dash2["Regimen"] = "25x25 Zero Faults (0.0)"
+    df_dash3["Regimen"] = "50x50 Spatial Scaling"
+    df_dash4["Regimen"] = "25x25 Obstacle Airspace"
+    df_master = pd.concat([df_dash1, df_dash2, df_dash3, df_dash4], ignore_index=True)
+    df_master.to_csv(os.path.join(desktop, "evaluation_all_4_dashboards_resilience_summary.csv"), index=False)
+
+    print("\n=================== ALL 4 DASHBOARDS GENERATED WITH RESILIENCE METRICS ===================")
+    print("Exported 4 Master Dashboards & Summary CSV to Desktop:")
+    print("  1. PERFECT_dashboard1_active_faults_0005.png")
+    print("  2. PERFECT_dashboard2_zero_faults.png")
+    print("  3. PERFECT_dashboard3_50x50_spatial_scaling.png")
+    print("  4. PERFECT_dashboard4_obstacle_airspaces.png")
+    print("  5. evaluation_all_4_dashboards_resilience_summary.csv")
+
+    ray.shutdown()
