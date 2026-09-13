@@ -179,11 +179,13 @@ def run_training(algo, exp_name, t_max, individual_rewards, agent="rnn", episode
         anneal_steps = episodes * episode_limit
         cmd.append(f"epsilon_anneal_time={anneal_steps}")
         cmd.append("batch_size=8")
+        cmd.append("runner=parallel")
+        cmd.append("batch_size_run=8")
         
         print("[!] Off-policy algorithm detected.")
         print(f"    -> Scaling 'buffer_size' to 200 episodes (~3.1 GB RAM)")
         print(f"    -> Tailoring 'epsilon_anneal_time' to {anneal_steps:,} steps ({episodes} episodes) for {agent.upper()} agent")
-        print(f"    -> Optimizing 'batch_size' to 8 episodes for 4x faster CPU training execution")
+        print(f"    -> Enabling 'runner=parallel' with 'batch_size_run=8' for multi-core CPU acceleration across all available CPUs!")
 
     if individual_rewards:
         cmd.append("common_reward=False")

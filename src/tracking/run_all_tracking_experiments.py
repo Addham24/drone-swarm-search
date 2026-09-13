@@ -157,7 +157,24 @@ def run_paired():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Paired Tracking Benchmark Runner")
     parser.add_argument("--sequential", action="store_true", help="Run 12 jobs strictly 1-by-1 instead of in parallel pairs")
+    parser.add_argument("--start_from", type=str, default=None, help="Skip pairs until matching this algorithm name (e.g., 'MAA2C', 'COMA')")
+    parser.add_argument("--algo", type=str, default=None, help="Run ONLY this specific algorithm pair (e.g., 'MAA2C', 'COMA')")
     args = parser.parse_args()
+
+    if args.algo:
+        target = args.algo.strip().upper()
+        PAIRS = [p for p in PAIRS if p["algorithm"].replace(" ", "").upper() == target.replace(" ", "")]
+        print(f"[!] Filtered PAIRS to run ONLY: {target}")
+
+    elif args.start_from:
+        start_target = args.start_from.strip().upper()
+        start_idx = 0
+        for idx, p in enumerate(PAIRS):
+            if p["algorithm"].replace(" ", "").upper() == start_target.replace(" ", ""):
+                start_idx = idx
+                break
+        PAIRS = PAIRS[start_idx:]
+        print(f"[!] Resuming training from pair: {start_target} ({len(PAIRS)} pairs remaining)")
 
     if args.sequential:
         print("[!] Running in sequential mode (1 job at a time)...")
