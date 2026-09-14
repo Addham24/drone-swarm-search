@@ -166,3 +166,12 @@ class DSSETrackingMultiAgentEnv:
 
     def close(self):
         self.env.close()
+
+    def render(self):
+        pass
+
+    def save_replay(self):
+        pass
+
+    def get_stats(self):
+        return {}
