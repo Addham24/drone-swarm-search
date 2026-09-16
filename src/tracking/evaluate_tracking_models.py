@@ -10,6 +10,10 @@ It does NOT use training logs (which differ between EPyMARL and RLlib).
 Instead, it loads the trained PyTorch model weights from both frameworks and executes
 identical rollouts in the PettingZoo tracking environment.
 
+Checkpoint Selection Rule:
+Only selects checkpoints trained AFTER 10 Million timesteps (t >= 10,000,000).
+Among post-10M checkpoints, selects the BEST (lowest ep length / peak performance) checkpoint.
+
 Metrics Evaluated:
   1. Target Intercept / Discovery Rate (%)
   2. Mean Time-to-Discovery / Intercept (steps)
@@ -26,6 +30,7 @@ Outputs:
 import os
 import sys
 import glob
+import re
 import pickle
 import pathlib
 import numpy as np
@@ -257,7 +262,7 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
 
     plt.style.use("dark_background")
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
-    fig.suptitle(f"{title_prefix} — Master Performance Dashboard (25x25)", fontsize=18, fontweight="bold", y=0.98)
+    fig.suptitle(f"{title_prefix} — Master Performance Dashboard (Post-10M Peak Checkpoints)", fontsize=18, fontweight="bold", y=0.98)
 
     models = df_results["Model"].tolist()
     x = np.arange(len(models))
@@ -314,11 +319,10 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
 
 
 def find_latest_checkpoint(search_pattern):
-    """Finds the most recent checkpoint folder or file matching a pattern (sorting numerically by checkpoint number)."""
+    """Fallback helper to find most recent checkpoint."""
     matches = glob.glob(search_pattern, recursive=True)
     if not matches:
         return None
-    import re
     def get_ckpt_num(path):
         nums = re.findall(r'\d+', os.path.basename(path))
         return int(nums[-1]) if nums else 0
@@ -326,9 +330,70 @@ def find_latest_checkpoint(search_pattern):
     return matches[0]
 
 
+def find_best_post_10m_checkpoint(pattern, framework, min_timesteps=10_000_000):
+    """
+    Selects the BEST checkpoint trained AFTER min_timesteps (10 Million timesteps).
+    Uses lowest episode length / peak iteration post-10M.
+    """
+    if framework == "rllib":
+        base_dir = pattern.split("/**/checkpoint_*")[0]
+        progress_files = glob.glob(base_dir + "/**/progress.csv", recursive=True)
+        
+        for prog_path in progress_files:
+            try:
+                df = pd.read_csv(prog_path)
+                col_ts = "timesteps_total" if "timesteps_total" in df.columns else "num_env_steps_sampled_lifetime"
+                col_len = "env_runners/episode_len_mean" if "env_runners/episode_len_mean" in df.columns else "episode_len_mean"
+                
+                if col_ts in df.columns and col_len in df.columns:
+                    df_post10m = df[df[col_ts] >= min_timesteps]
+                    if not df_post10m.empty:
+                        # Find row with lowest episode length post-10M
+                        best_row = df_post10m.loc[df_post10m[col_len].idxmin()]
+                        iter_num = int(best_row["training_iteration"]) if "training_iteration" in best_row else None
+                        
+                        trial_dir = os.path.dirname(prog_path)
+                        if iter_num is not None:
+                            ckpt_dir = os.path.join(trial_dir, f"checkpoint_{iter_num:06d}")
+                            if os.path.exists(ckpt_dir):
+                                print(f"    [Post-10M Peak Match] Found iter {iter_num} ({best_row[col_ts]:,} steps | ep_len: {best_row[col_len]:.1f})")
+                                return ckpt_dir
+            except Exception as e:
+                pass
+                
+        # Fallback for RLlib: find any checkpoint >= checkpoint_000100 (which corresponds to >= 10M timesteps)
+        matches = glob.glob(pattern, recursive=True)
+        post_10m_ckpts = []
+        for m in matches:
+            nums = re.findall(r'\d+', os.path.basename(m))
+            ckpt_num = int(nums[-1]) if nums else 0
+            if ckpt_num >= 100:
+                post_10m_ckpts.append((ckpt_num, m))
+        if post_10m_ckpts:
+            post_10m_ckpts.sort(key=lambda x: x[0], reverse=True)
+            return post_10m_ckpts[0][1]
+
+    else:  # EPyMARL
+        matches = glob.glob(pattern, recursive=True)
+        post_10m_matches = []
+        for m in matches:
+            parent_dir = os.path.basename(os.path.dirname(m))
+            if parent_dir.isdigit() and int(parent_dir) >= min_timesteps:
+                post_10m_matches.append((int(parent_dir), m))
+        
+        if post_10m_matches:
+            # Pick highest step checkpoint post-10M
+            post_10m_matches.sort(key=lambda x: x[0], reverse=True)
+            print(f"    [Post-10M Match] Found checkpoint at {post_10m_matches[0][0]:,} steps")
+            return post_10m_matches[0][1]
+            
+    return find_latest_checkpoint(pattern)
+
+
 if __name__ == "__main__":
     print(f"\n{'='*75}")
     print(f"  LAUNCHING DYNAMIC TARGET TRACKING MASTER EVALUATION & DASHBOARD SUITE")
+    print(f"  [Rule: Selecting BEST checkpoint AFTER 10 Million timesteps]")
     print(f"{'='*75}\n")
 
     tracking_models = [
@@ -350,7 +415,7 @@ if __name__ == "__main__":
     all_raw_records = []
 
     for model_name, pattern, framework, model_cls, is_self_heal in tracking_models:
-        ckpt_path = find_latest_checkpoint(pattern)
+        ckpt_path = find_best_post_10m_checkpoint(pattern, framework, min_timesteps=10_000_000)
         print(f"[▶] Evaluating Model: {model_name}")
         if ckpt_path:
             print(f"    Loading {framework.upper()} Checkpoint: {ckpt_path}")
