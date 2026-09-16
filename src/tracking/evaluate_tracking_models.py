@@ -245,7 +245,6 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
         survival_rate = ((n_drones - unique_crashed) / n_drones) * 100.0
         survival_list.append(survival_rate)
         
-        # Convert raw battery steps (0-125) to true percentage (0-100%)
         avg_batt = ((total_battery / battery_samples) / 125.0 * 100.0) if battery_samples > 0 else 0.0
         battery_list.append(avg_batt)
 
@@ -259,66 +258,99 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
             "avg_battery": avg_batt,
         })
 
+    res_tf = float(np.mean(target_found_list))
+    res_dt = float(np.mean(discovery_times))
+    res_surv = float(np.mean(survival_list))
+    res_batt = float(np.mean(battery_list))
+
+    # Swarm Mission Efficiency Index (SMEI %): Resilience-weighted geometric mean across 4 dimensions
+    # Prioritizes resilience & energy health (w_survival=0.30, w_battery=0.30) alongside tracking (w_target=0.20, w_speed=0.20)
+    f_target = max(0.001, res_tf / 100.0)
+    f_speed = max(0.001, (750.0 - res_dt) / 750.0)
+    f_survival = max(0.001, res_surv / 100.0)
+    f_battery = max(0.001, res_batt / 100.0)
+    smei = (f_target**0.20 * f_speed**0.20 * f_survival**0.30 * f_battery**0.30) * 100.0
+
     return {
-        "target_found_rate": float(np.mean(target_found_list)),
-        "mean_discovery_time": float(np.mean(discovery_times)),
+        "target_found_rate": res_tf,
+        "mean_discovery_time": res_dt,
         "attrition_rate": float(np.mean(attrition_list)),
-        "survival_rate": float(np.mean(survival_list)),
-        "avg_battery": float(np.mean(battery_list)),
+        "survival_rate": res_surv,
+        "avg_battery": res_batt,
+        "smei": smei,
         "raw_records": seed_records
     }
 
 
 def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Target Tracking Benchmark"):
-    """Generates a master 5-panel dashboard PNG for dynamic target tracking performance."""
+    """Generates a master 6-panel dashboard PNG for dynamic target tracking performance."""
     os.makedirs(output_dir, exist_ok=True)
 
     plt.style.use("dark_background")
-    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
-    fig.suptitle(f"{title_prefix} — Master Performance Dashboard (Post-10M Peak Checkpoints)", fontsize=18, fontweight="bold", y=0.98)
+    fig, axes = plt.subplots(2, 3, figsize=(19, 11))
+    fig.suptitle(f"{title_prefix} — Master Performance Dashboard (Post-10M Checkpoints)", fontsize=17, fontweight="bold", y=0.98)
 
     models = df_results["Model"].tolist()
     x = np.arange(len(models))
 
     # 1. Target Found Rate (%)
-    axes[0, 0].bar(x, df_results["Target Found Rate (%)"], color="#2ca02c", edgecolor="white")
-    axes[0, 0].set_title("1. Target Intercept / Discovery Rate (%)", fontsize=13, fontweight="bold")
+    b1 = axes[0, 0].bar(x, df_results["Target Found Rate (%)"], color="#2ca02c", edgecolor="white")
+    axes[0, 0].set_title("1. Target Intercept / Discovery Rate (%)", fontsize=12, fontweight="bold")
     axes[0, 0].set_xticks(x)
-    axes[0, 0].set_xticklabels(models, rotation=35, ha='right', fontsize=9)
-    axes[0, 0].set_ylim(0, 105)
+    axes[0, 0].set_xticklabels(models, rotation=35, ha='right', fontsize=8.5)
+    axes[0, 0].set_ylim(0, 115)
     axes[0, 0].grid(axis='y', linestyle='--', alpha=0.5)
+    for bar in b1:
+        axes[0, 0].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     # 2. Mean Time-to-Discovery (steps)
-    axes[0, 1].bar(x, df_results["Mean Discovery Time (steps)"], color="#1f77b4", edgecolor="white")
-    axes[0, 1].set_title("2. Mean Time-to-Intercept (steps)", fontsize=13, fontweight="bold")
+    b2 = axes[0, 1].bar(x, df_results["Mean Discovery Time (steps)"], color="#1f77b4", edgecolor="white")
+    axes[0, 1].set_title("2. Mean Time-to-Intercept (steps)", fontsize=12, fontweight="bold")
     axes[0, 1].set_xticks(x)
-    axes[0, 1].set_xticklabels(models, rotation=35, ha='right', fontsize=9)
+    axes[0, 1].set_xticklabels(models, rotation=35, ha='right', fontsize=8.5)
     axes[0, 1].grid(axis='y', linestyle='--', alpha=0.5)
+    for bar in b2:
+        axes[0, 1].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 10.0, f"{bar.get_height():.0f}", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     # 3. Agent Attrition Rate (crashes/ep)
-    axes[0, 2].bar(x, df_results["Attrition Rate"], color="#d62728", edgecolor="white")
-    axes[0, 2].set_title("3. Agent Attrition Rate (Crashes/ep)", fontsize=13, fontweight="bold")
+    b3 = axes[0, 2].bar(x, df_results["Attrition Rate"], color="#d62728", edgecolor="white")
+    axes[0, 2].set_title("3. Agent Attrition Rate (Crashes/ep)", fontsize=12, fontweight="bold")
     axes[0, 2].set_xticks(x)
-    axes[0, 2].set_xticklabels(models, rotation=35, ha='right', fontsize=9)
+    axes[0, 2].set_xticklabels(models, rotation=35, ha='right', fontsize=8.5)
+    axes[0, 2].set_ylim(0, 4.8)
     axes[0, 2].grid(axis='y', linestyle='--', alpha=0.5)
+    for bar in b3:
+        axes[0, 2].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 0.08, f"{bar.get_height():.2f}", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     # 4. Swarm Survival Rate (%)
-    axes[1, 0].bar(x, df_results["Survival Rate (%)"], color="#9467bd", edgecolor="white")
-    axes[1, 0].set_title("4. Swarm Survival Rate (%)", fontsize=13, fontweight="bold")
+    b4 = axes[1, 0].bar(x, df_results["Survival Rate (%)"], color="#9467bd", edgecolor="white")
+    axes[1, 0].set_title("4. Swarm Survival Rate (%)", fontsize=12, fontweight="bold")
     axes[1, 0].set_xticks(x)
-    axes[1, 0].set_xticklabels(models, rotation=35, ha='right', fontsize=9)
-    axes[1, 0].set_ylim(0, 105)
+    axes[1, 0].set_xticklabels(models, rotation=35, ha='right', fontsize=8.5)
+    axes[1, 0].set_ylim(0, 115)
     axes[1, 0].grid(axis='y', linestyle='--', alpha=0.5)
+    for bar in b4:
+        axes[1, 0].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     # 5. Fleet Avg Battery Level (%)
-    axes[1, 1].bar(x, df_results["Avg Battery Level (%)"], color="#ff7f0e", edgecolor="white")
-    axes[1, 1].set_title("5. Fleet Avg Battery Level (%)", fontsize=13, fontweight="bold")
+    b5 = axes[1, 1].bar(x, df_results["Avg Battery Level (%)"], color="#ff7f0e", edgecolor="white")
+    axes[1, 1].set_title("5. Fleet Avg Battery Level (%)", fontsize=12, fontweight="bold")
     axes[1, 1].set_xticks(x)
-    axes[1, 1].set_xticklabels(models, rotation=35, ha='right', fontsize=9)
+    axes[1, 1].set_xticklabels(models, rotation=35, ha='right', fontsize=8.5)
+    axes[1, 1].set_ylim(0, 115)
     axes[1, 1].grid(axis='y', linestyle='--', alpha=0.5)
+    for bar in b5:
+        axes[1, 1].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
-    # Hide unused 6th subplot
-    fig.delaxes(axes[1, 2])
+    # 6. Swarm Mission Efficiency Index (SMEI %)
+    b6 = axes[1, 2].bar(x, df_results["SMEI (%)"], color="#e377c2", edgecolor="white")
+    axes[1, 2].set_title("6. Swarm Mission Efficiency Index (SMEI %)", fontsize=12, fontweight="bold")
+    axes[1, 2].set_xticks(x)
+    axes[1, 2].set_xticklabels(models, rotation=35, ha='right', fontsize=8.5)
+    axes[1, 2].set_ylim(0, 115)
+    axes[1, 2].grid(axis='y', linestyle='--', alpha=0.5)
+    for bar in b6:
+        axes[1, 2].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     save_path = os.path.join(output_dir, "dashboard_tracking_25x25.png")
@@ -473,6 +505,7 @@ if __name__ == "__main__":
                 "Attrition Rate": round(res["attrition_rate"], 2),
                 "Survival Rate (%)": round(res["survival_rate"], 2),
                 "Avg Battery Level (%)": round(res["avg_battery"], 2),
+                "SMEI (%)": round(res["smei"], 2),
             })
 
             for r in res["raw_records"]:
