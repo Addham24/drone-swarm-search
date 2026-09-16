@@ -22,19 +22,24 @@ def make_tracking_env(
     fault_prob=0.0005,
     is_self_heal=False,
     drift_speed=1.0,
-    positions=None
+    positions=None,
+    render_mode=None
 ):
     """
     Constructs the dynamic target tracking environment with full wrapper stack:
     DroneSwarmSearch -> AllPositionsWrapper -> BatteryStationWrapper -> RandomDriftWrapper -> TrackingRewardWrapper -> RetainDronePosWrapper
     """
-    env = DroneSwarmSearch(
-        grid_size=grid_size,
-        drone_amount=drone_amount,
-        person_amount=person_amount,
-        person_initial_position=person_initial_position,
-        timestep_limit=timestep_limit,
-    )
+    env_kwargs = {
+        "grid_size": grid_size,
+        "drone_amount": drone_amount,
+        "person_amount": person_amount,
+        "person_initial_position": person_initial_position,
+        "timestep_limit": timestep_limit,
+    }
+    if render_mode is not None:
+        env_kwargs["render_mode"] = render_mode
+
+    env = DroneSwarmSearch(**env_kwargs)
     
     # 1. Expand observation space to include all drone positions
     env = AllPositionsWrapper(env)
