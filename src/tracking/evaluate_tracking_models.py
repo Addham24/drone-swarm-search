@@ -164,6 +164,13 @@ def load_epymarl_policy(model_th_path):
 def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_size=25, is_self_heal=False):
     """
     Evaluates a policy function over n_seeds in the tracking environment.
+    
+    Metric definitions:
+      - Attrition Rate: Number of drones that crashed/stranded during the episode (once crashed, permanently gone).
+      - Swarm Survival Rate: Percentage of the 4 initial drones that survived the entire episode without crashing.
+        Derived as (4 - unique_crashed_agents) / 4 * 100.
+        This avoids relying on the obs dictionary at episode end, which is unreliable in PettingZoo
+        (agents are removed from obs when the environment terminates, not only when they crash).
     """
     fault_prob = 0.0005 if is_fault_active else 0.0
     
@@ -198,7 +205,8 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
 
         total_battery = 0
         battery_samples = 0
-        crashes = 0
+        crash_events = 0          # Total crash events (can double-count same agent)
+        crashed_agents = set()    # Unique agents that crashed at least once
 
         while not done and step < 750:
             step += 1
@@ -217,7 +225,8 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
             for agent, info in infos.items():
                 if isinstance(info, dict):
                     if info.get("stranded_event", False):
-                        crashes += 1
+                        crash_events += 1
+                        crashed_agents.add(agent)
                     batt = info.get("battery")
                     if batt is not None:
                         total_battery += batt
@@ -228,20 +237,24 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
 
         target_found_list.append(100.0 if target_found else 0.0)
         discovery_times.append(discovery_step if target_found else 750)
-        attrition_list.append(crashes)
+        attrition_list.append(crash_events)
         
-        alive_drones = sum(1 for agent in env.agents if obs.get(agent) is not None)
-        survival_rate = (alive_drones / 4.0) * 100.0
+        # Survival rate: proportion of drones that NEVER crashed during the episode
+        n_drones = 4
+        unique_crashed = len(crashed_agents)
+        survival_rate = ((n_drones - unique_crashed) / n_drones) * 100.0
         survival_list.append(survival_rate)
         
-        avg_batt = (total_battery / battery_samples) if battery_samples > 0 else 0.0
+        # Convert raw battery steps (0-125) to true percentage (0-100%)
+        avg_batt = ((total_battery / battery_samples) / 125.0 * 100.0) if battery_samples > 0 else 0.0
         battery_list.append(avg_batt)
 
         seed_records.append({
             "seed": seed,
             "target_found": 1 if target_found else 0,
             "discovery_step": discovery_step,
-            "crashes": crashes,
+            "crash_events": crash_events,
+            "unique_agents_crashed": unique_crashed,
             "survival_rate": survival_rate,
             "avg_battery": avg_batt,
         })
@@ -411,12 +424,19 @@ if __name__ == "__main__":
         ("IQL SelfHeal", os.path.join(SRC_DIR, "results/models/*iql_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
     ]
 
-    results_list = []
-    all_raw_records = []
+    # Fault regimes to evaluate
+    fault_regimes = [
+        ("No_Faults_0.0", False, "No Faults (fault_prob = 0.0)"),
+        ("Active_Faults_0.0005", True, "Active Faults (fault_prob = 0.0005)"),
+    ]
 
+    base_output_dir = os.path.expanduser("~/Desktop/Results/Tracking")
+
+    # Pre-load policies so PyTorch weights are loaded only once
+    loaded_policies = []
     for model_name, pattern, framework, model_cls, is_self_heal in tracking_models:
         ckpt_path = find_best_post_10m_checkpoint(pattern, framework, min_timesteps=10_000_000)
-        print(f"[▶] Evaluating Model: {model_name}")
+        print(f"[▶] Resolving Model: {model_name}")
         if ckpt_path:
             print(f"    Loading {framework.upper()} Checkpoint: {ckpt_path}")
             if framework == "rllib":
@@ -432,31 +452,45 @@ if __name__ == "__main__":
                 return stub_fn
             policy_fn = make_stub()
 
-        res = evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_size=25, is_self_heal=is_self_heal)
-        
-        results_list.append({
-            "Model": model_name,
-            "Target Found Rate (%)": round(res["target_found_rate"], 2),
-            "Mean Discovery Time (steps)": round(res["mean_discovery_time"], 2),
-            "Attrition Rate": round(res["attrition_rate"], 2),
-            "Survival Rate (%)": round(res["survival_rate"], 2),
-            "Avg Battery Level (%)": round(res["avg_battery"], 2),
-        })
+        loaded_policies.append((model_name, policy_fn, is_self_heal))
 
-        for r in res["raw_records"]:
-            r["Model"] = model_name
-            all_raw_records.append(r)
+    for folder_name, is_fault_active, title_tag in fault_regimes:
+        print(f"\n{'='*75}")
+        print(f"  RUNNING TRACKING EVALUATION SUITE: {title_tag}")
+        print(f"{'='*75}\n")
 
-    df_results = pd.DataFrame(results_list)
-    output_dir = os.path.expanduser("~/Desktop/Results/Tracking")
-    generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Target Tracking Benchmark")
+        results_list = []
+        all_raw_records = []
 
-    df_raw = pd.DataFrame(all_raw_records)
-    raw_csv_path = os.path.join(output_dir, "tracking_raw_seed_by_seed.csv")
-    df_raw.to_csv(raw_csv_path, index=False)
-    print(f"[✓] Raw seed-by-seed dataset saved to: {raw_csv_path}")
+        for model_name, policy_fn, is_self_heal in loaded_policies:
+            print(f"  [▶] Evaluating {model_name} under {title_tag}...")
+            res = evaluate_tracking_model(policy_fn, is_fault_active=is_fault_active, n_seeds=100, grid_size=25, is_self_heal=is_self_heal)
+            
+            results_list.append({
+                "Model": model_name,
+                "Target Found Rate (%)": round(res["target_found_rate"], 2),
+                "Mean Discovery Time (steps)": round(res["mean_discovery_time"], 2),
+                "Attrition Rate": round(res["attrition_rate"], 2),
+                "Survival Rate (%)": round(res["survival_rate"], 2),
+                "Avg Battery Level (%)": round(res["avg_battery"], 2),
+            })
+
+            for r in res["raw_records"]:
+                r["Model"] = model_name
+                all_raw_records.append(r)
+
+        df_results = pd.DataFrame(results_list)
+        regime_output_dir = os.path.join(base_output_dir, folder_name)
+        generate_tracking_dashboard(df_results, regime_output_dir, title_prefix=f"Dynamic Target Tracking — {title_tag}")
+
+        df_raw = pd.DataFrame(all_raw_records)
+        raw_csv_path = os.path.join(regime_output_dir, "tracking_raw_seed_by_seed.csv")
+        df_raw.to_csv(raw_csv_path, index=False)
+        print(f"[✓] Raw seed-by-seed dataset saved to: {raw_csv_path}")
 
     print(f"\n{'='*75}")
-    print(f"  TRACKING DASHBOARD GENERATION COMPLETE!")
-    print(f"  Results Directory: {output_dir}")
+    print(f"  DUAL TRACKING BENCHMARK SUITES COMPLETE!")
+    print(f"  Base Results Directory: {base_output_dir}")
+    print(f"    - No_Faults_0.0:        {os.path.join(base_output_dir, 'No_Faults_0.0')}")
+    print(f"    - Active_Faults_0.0005:  {os.path.join(base_output_dir, 'Active_Faults_0.0005')}")
     print(f"{'='*75}\n")
