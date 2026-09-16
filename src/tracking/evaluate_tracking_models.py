@@ -55,10 +55,13 @@ class MockArgs:
         self.n_actions = n_actions
 
 
+class DummyVersion:
+    def __init__(self, *args, **kwargs): pass
+    def __setstate__(self, state): pass
+
 class VersionCompatibilityUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         if name == "Version" or "version" in module:
-            class DummyVersion: pass
             return DummyVersion
         return super().find_class(module, name)
 
@@ -311,11 +314,15 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
 
 
 def find_latest_checkpoint(search_pattern):
-    """Finds the most recent checkpoint folder or file matching a pattern."""
+    """Finds the most recent checkpoint folder or file matching a pattern (sorting numerically by checkpoint number)."""
     matches = glob.glob(search_pattern, recursive=True)
     if not matches:
         return None
-    matches.sort(key=os.path.getmtime, reverse=True)
+    import re
+    def get_ckpt_num(path):
+        nums = re.findall(r'\d+', os.path.basename(path))
+        return int(nums[-1]) if nums else 0
+    matches.sort(key=lambda p: (get_ckpt_num(p), os.path.getmtime(p)), reverse=True)
     return matches[0]
 
 
