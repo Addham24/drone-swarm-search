@@ -442,8 +442,8 @@ if __name__ == "__main__":
     print(f"{'='*75}\n")
 
     tracking_models = [
-        ("RSPO V2 Vanilla", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*RSPO_V2_Tracking_Vanilla*/**/checkpoint_*"), "rllib", RSPOModelV2, False),
-        ("RSPO V2 SelfHeal", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*RSPO_V2_Tracking_SelfHeal*/**/checkpoint_*"), "rllib", RSPOModelV2, True),
+        ("RSPO Vanilla", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*RSPO_V2_Tracking_Vanilla*/**/checkpoint_*"), "rllib", RSPOModelV2, False),
+        ("RSPO SelfHeal", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*RSPO_V2_Tracking_SelfHeal*/**/checkpoint_*"), "rllib", RSPOModelV2, True),
         ("MAPPO Vanilla", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*MAPPO_Tracking_Vanilla*/**/checkpoint_*"), "rllib", MAPPOModelVanilla, False),
         ("MAPPO SelfHeal", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*MAPPO_Tracking_SelfHeal*/**/checkpoint_*"), "rllib", MAPPOModelVanilla, True),
         ("QMIX Vanilla", os.path.join(SRC_DIR, "results/models/*qmix_tracking_vanilla*/**/agent.th"), "epymarl", None, False),
@@ -452,8 +452,8 @@ if __name__ == "__main__":
         ("MAA2C SelfHeal", os.path.join(SRC_DIR, "results/models/*maa2c_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
         ("COMA Vanilla", os.path.join(SRC_DIR, "results/models/*coma_tracking_vanilla*/**/agent.th"), "epymarl", None, False),
         ("COMA SelfHeal", os.path.join(SRC_DIR, "results/models/*coma_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
-        ("IQL Vanilla", os.path.join(SRC_DIR, "results/models/*iql_tracking_vanilla*/**/agent.th"), "epymarl", None, False),
-        ("IQL SelfHeal", os.path.join(SRC_DIR, "results/models/*iql_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
+        ("I-DQN Vanilla", os.path.join(SRC_DIR, "results/models/*iql_tracking_vanilla*/**/agent.th"), "epymarl", None, False),
+        ("I-DQN SelfHeal", os.path.join(SRC_DIR, "results/models/*iql_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
     ]
 
     # Fault regimes to evaluate
