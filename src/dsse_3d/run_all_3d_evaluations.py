@@ -598,7 +598,7 @@ def generate_coverage_3d_dashboard(df, output_dir, title):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def run_task_evaluations(task, n_seeds, loaded_policies):
-    """Run all 8 evaluation configurations for a single task."""
+    """Run all 20 evaluation configurations for a single task."""
     base_output = os.path.expanduser(f"~/Desktop/Results/3D/{task.title()}")
     os.makedirs(base_output, exist_ok=True)
     total_start = time.time()
