@@ -1,30 +1,32 @@
 """
-Evaluation and Master Dashboard Generation Suite for Dynamic Target Tracking
-=============================================================================
-Evaluates trained tracking models (RSPO V2, MAPPO, QMIX, MAA2C, COMA, IQL across Vanilla & SelfHeal)
-over 100 test seeds per model.
+50×50 Zero-Shot Generalization Evaluation for Dynamic Target Tracking
+=====================================================================
+Evaluates the same trained 25×25 tracking models on a 50×50 grid environment.
 
-IMPORTANT:
-Evaluation is PURELY EMPIRICAL on fixed test seeds (seed 1000 to 1099).
-It does NOT use training logs (which differ between EPyMARL and RLlib).
-Instead, it loads the trained PyTorch model weights from both frameworks and executes
-identical rollouts in the PettingZoo tracking environment.
+This is a ZERO-SHOT GENERALIZATION test:
+  - Models were trained on 25×25 grids
+  - Observation matrices (50×50) are downscaled to 25×25 via INTER_AREA before inference
+  - Position vectors are already normalized [0,1] by BatteryStationWrapper (grid-agnostic)
+  - Per-drone capabilities (search radius, speed) are NOT scaled — that's the test
 
-Checkpoint Selection Rule:
-Only selects checkpoints trained AFTER 10 Million timesteps (t >= 10,000,000).
-Among post-10M checkpoints, selects the BEST (lowest ep length / peak performance) checkpoint.
+Scaled for 50×50:
+  - grid_size: 25 → 50
+  - timestep_limit: 750 → 1500  (2× for doubled grid distance)
+  - max_battery: 125 → 250      (2× for doubled travel distance)
+  - person_initial_position: (12,12) → (25,25)  (grid center)
+  - discovery_step cap: 750 → 1500
 
-Metrics Evaluated:
-  1. Target Intercept / Discovery Rate (%)
-  2. Mean Time-to-Discovery / Intercept (steps)
-  3. Agent Attrition Rate (crashes per episode)
-  4. Swarm Survival Rate (%)
-  5. Fleet Average Battery Level (%)
+NOT scaled (zero-shot):
+  - Search/visibility radius
+  - Movement speed (1 cell/step)
+  - Spawn positions (corner)
+  - Fault probability (0.0005/step)
+  - Drift speed (1.0)
 
 Outputs:
-  - ~/Desktop/Results/Tracking/dashboard_tracking_25x25.png
-  - ~/Desktop/Results/Tracking/tracking_summary_all_metrics.csv
-  - ~/Desktop/Results/Tracking/tracking_raw_seed_by_seed.csv
+  - ~/Desktop/Results/Tracking/No_Faults_0.0/dashboard_tracking_50x50.png
+  - ~/Desktop/Results/Tracking/Active_Faults_0.0005/dashboard_tracking_50x50.png
+  - Corresponding CSV files
 """
 
 import os
@@ -37,6 +39,7 @@ import numpy as np
 import pandas as pd
 import torch as th
 import matplotlib.pyplot as plt
+from PIL import Image
 
 # Ensure src directory is on sys.path
 SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,6 +54,13 @@ from modules.agents.cnn_agent import CNNAgent
 from modules.agents.rnn_agent import RNNAgent
 from train_rspo_v2_vanilla import RSPOModelV2
 from train_mappo_vanilla import CNNModel as MAPPOModelVanilla
+
+
+# ── 50×50 Environment Constants ──
+GRID_SIZE = 50
+TIMESTEP_LIMIT = 1500
+MAX_BATTERY = 250
+TARGET_GRID_SIZE = 25   # Models expect 25×25 matrices
 
 
 class MockArgs:
@@ -71,9 +81,46 @@ class VersionCompatibilityUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
+def make_resizing_policy(policy_fn, source_grid_size=50, target_grid_size=25):
+    """
+    Wraps a policy_fn to downscale observation matrices from source to target grid size.
+    
+    The 50×50 environment produces 50×50 probability matrices. The trained models
+    expect 25×25 matrices with total probability mass sum P = 1.0.
+    
+    Uses PIL BOX resampling (area averaging) and preserves probability mass by multiplying
+    non-obstacle probability values by (source_grid_size / target_grid_size)^2 = 4.0.
+    """
+    scale_factor = float((source_grid_size / target_grid_size) ** 2)
+
+    def resized_policy_fn(obs_dict, agents):
+        resized_obs = {}
+        for agent in agents:
+            if agent not in obs_dict:
+                continue
+            pos_vec, matrix = obs_dict[agent]
+            pil_img = Image.fromarray(matrix.astype(np.float32), mode='F')
+            pil_resized = pil_img.resize((target_grid_size, target_grid_size), resample=Image.BOX)
+            resized_matrix = np.array(pil_resized, dtype=np.float32)
+            
+            # Preserve probability mass: scale non-obstacle probability values by 4.0
+            # (Obstacle cells < 0 stay as obstacle walls)
+            non_obstacle_mask = (resized_matrix >= 0)
+            resized_matrix[non_obstacle_mask] *= scale_factor
+            
+            resized_obs[agent] = (pos_vec, resized_matrix)
+        return policy_fn(resized_obs, agents)
+    return resized_policy_fn
+
+
 def load_rllib_policy(model_cls, checkpoint_path, model_name="TrackingModel"):
-    """Loads PyTorch weights from an RLlib checkpoint directory or .pt file."""
+    """Loads PyTorch weights from an RLlib checkpoint directory or .pt file.
+    
+    Models are instantiated with 25×25 obs_space (matching trained weights).
+    The resizing wrapper handles 50→25 downscaling before this function is called.
+    """
     from gymnasium.spaces import Box, Tuple as GymTuple, Discrete
+    # Models were trained on 25×25 — instantiate with matching obs_space
     obs_space = GymTuple([Box(-1.0, 1.0, (22,), dtype=np.float32), Box(0.0, 1.0, (25, 25), dtype=np.float32)])
     act_space = Discrete(9)
 
@@ -98,7 +145,7 @@ def load_rllib_policy(model_cls, checkpoint_path, model_name="TrackingModel"):
 
     model.eval()
 
-    def policy_fn(obs_dict, agents, *args, **kwargs):
+    def policy_fn(obs_dict, agents):
         actions = {}
         for agent in agents:
             if agent in obs_dict:
@@ -115,7 +162,11 @@ def load_rllib_policy(model_cls, checkpoint_path, model_name="TrackingModel"):
 
 
 def load_epymarl_policy(model_th_path):
-    """Loads PyTorch weights from an EPyMARL agent.th checkpoint with persistent RNN state."""
+    """Loads PyTorch weights from an EPyMARL agent.th checkpoint.
+    
+    Models were trained on 25×25 (obs_size=647, matrix_size=625).
+    The resizing wrapper handles 50→25 downscaling before this function is called.
+    """
     state_dict = th.load(model_th_path, map_location="cpu")
     
     if "fc1.weight" in state_dict:
@@ -130,15 +181,10 @@ def load_epymarl_policy(model_th_path):
     agent.load_state_dict(state_dict, strict=False)
     agent.eval()
 
-    hidden_state_container = [None]
-
-    def policy_fn(obs_dict, agents, reset=False):
+    def policy_fn(obs_dict, agents):
         actions = {}
         n_agents = len(agents)
-        obs_size = 22 + 625
-
-        if reset or hidden_state_container[0] is None or hidden_state_container[0].shape[0] != n_agents:
-            hidden_state_container[0] = agent.init_hidden().expand(n_agents, -1).clone()
+        obs_size = 22 + 625  # 25×25 matrix (after resizing)
 
         inputs = []
         for i, agent_name in enumerate(agents):
@@ -154,8 +200,8 @@ def load_epymarl_policy(model_th_path):
 
         inputs_tensor = th.tensor(np.stack(inputs), dtype=th.float32)
         with th.no_grad():
-            q_logits, updated_hidden = agent(inputs_tensor, hidden_state_container[0])
-            hidden_state_container[0] = updated_hidden
+            hidden_states = agent.init_hidden().expand(n_agents, -1).clone()
+            q_logits, _ = agent(inputs_tensor, hidden_states)
             actions_tensor = q_logits.argmax(dim=-1)
 
         for i, agent_name in enumerate(agents):
@@ -167,16 +213,17 @@ def load_epymarl_policy(model_th_path):
     return policy_fn
 
 
-def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_size=25, is_self_heal=False):
+def evaluate_tracking_model_50x50(policy_fn, is_fault_active=True, n_seeds=100, is_self_heal=False):
     """
-    Evaluates a policy function over n_seeds in the tracking environment.
+    Evaluates a policy function over n_seeds in a 50×50 tracking environment.
+    
+    The policy_fn is expected to already be wrapped with make_resizing_policy()
+    so that 50×50 matrices are downscaled to 25×25 before inference.
     
     Metric definitions:
       - Attrition Rate: Number of drones that crashed/stranded during the episode (once crashed, permanently gone).
       - Swarm Survival Rate: Percentage of the 4 initial drones that survived the entire episode without crashing.
         Derived as (4 - unique_crashed_agents) / 4 * 100.
-        This avoids relying on the obs dictionary at episode end, which is unreliable in PettingZoo
-        (agents are removed from obs when the environment terminates, not only when they crash).
     """
     fault_prob = 0.0005 if is_fault_active else 0.0
     
@@ -192,12 +239,12 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
         th.manual_seed(seed)
 
         env = make_tracking_env(
-            grid_size=grid_size,
+            grid_size=GRID_SIZE,
             drone_amount=4,
             person_amount=1,
-            person_initial_position=(grid_size // 2, grid_size // 2),
-            timestep_limit=750,
-            max_battery=125,
+            person_initial_position=(26, 26),
+            timestep_limit=TIMESTEP_LIMIT,
+            max_battery=MAX_BATTERY,
             fault_prob=fault_prob,
             is_self_heal=is_self_heal,
             drift_speed=1.0,
@@ -207,14 +254,14 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
         done = False
         step = 0
         target_found = False
-        discovery_step = 750
+        discovery_step = TIMESTEP_LIMIT
 
         total_battery = 0
         battery_samples = 0
-        crash_events = 0          # Total crash events (can double-count same agent)
-        crashed_agents = set()    # Unique agents that crashed at least once
+        crash_events = 0
+        crashed_agents = set()
 
-        while not done and step < 750:
+        while not done and step < TIMESTEP_LIMIT:
             step += 1
             actions = policy_fn(obs, env.agents)
             obs, rewards, term, trunc, infos = env.step(actions)
@@ -246,16 +293,15 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
                 done = True
 
         target_found_list.append(100.0 if target_found else 0.0)
-        discovery_times.append(discovery_step if target_found else 750)
+        discovery_times.append(discovery_step if target_found else TIMESTEP_LIMIT)
         attrition_list.append(crash_events)
         
-        # Survival rate: proportion of drones that NEVER crashed during the episode
         n_drones = 4
         unique_crashed = len(crashed_agents)
         survival_rate = ((n_drones - unique_crashed) / n_drones) * 100.0
         survival_list.append(survival_rate)
         
-        avg_batt = ((total_battery / battery_samples) / 125.0 * 100.0) if battery_samples > 0 else 0.0
+        avg_batt = ((total_battery / battery_samples) / float(MAX_BATTERY) * 100.0) if battery_samples > 0 else 0.0
         battery_list.append(avg_batt)
 
         seed_records.append({
@@ -273,10 +319,9 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
     res_surv = float(np.mean(survival_list))
     res_batt = float(np.mean(battery_list))
 
-    # Swarm Mission Efficiency Index (SMEI %): Resilience-weighted geometric mean across 4 dimensions
-    # Prioritizes resilience & energy health (w_survival=0.30, w_battery=0.30) alongside tracking (w_target=0.20, w_speed=0.20)
+    # SMEI with 50×50 normalization
     f_target = max(0.001, res_tf / 100.0)
-    f_speed = max(0.001, (750.0 - res_dt) / 750.0)
+    f_speed = max(0.001, (float(TIMESTEP_LIMIT) - res_dt) / float(TIMESTEP_LIMIT))
     f_survival = max(0.001, res_surv / 100.0)
     f_battery = max(0.001, res_batt / 100.0)
     smei = (f_target**0.20 * f_speed**0.20 * f_survival**0.30 * f_battery**0.30) * 100.0
@@ -292,13 +337,13 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
     }
 
 
-def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Target Tracking Benchmark"):
-    """Generates a master 6-panel dashboard PNG for dynamic target tracking performance."""
+def generate_tracking_dashboard_50x50(df_results, output_dir, title_prefix="Dynamic Target Tracking 50×50 Benchmark"):
+    """Generates a master 6-panel dashboard PNG for 50×50 tracking performance."""
     os.makedirs(output_dir, exist_ok=True)
 
     plt.style.use("dark_background")
     fig, axes = plt.subplots(2, 3, figsize=(19, 11))
-    fig.suptitle(f"{title_prefix} — Master Performance Dashboard (Post-10M Checkpoints)", fontsize=17, fontweight="bold", y=0.98)
+    fig.suptitle(f"{title_prefix} — Zero-Shot 50×50 Dashboard (Post-10M Checkpoints)", fontsize=17, fontweight="bold", y=0.98)
 
     models = df_results["Model"].tolist()
     x = np.arange(len(models))
@@ -352,7 +397,7 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
     for bar in b5:
         axes[1, 1].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
-    # 6. Swarm Mission Efficiency Index (SMEI %)
+    # 6. SMEI (%)
     b6 = axes[1, 2].bar(x, df_results["SMEI (%)"], color="#e377c2", edgecolor="white")
     axes[1, 2].set_title("6. Swarm Mission Efficiency Index (SMEI %)", fontsize=12, fontweight="bold")
     axes[1, 2].set_xticks(x)
@@ -363,14 +408,14 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
         axes[1, 2].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    save_path = os.path.join(output_dir, "dashboard_tracking_25x25.png")
+    save_path = os.path.join(output_dir, "dashboard_tracking_50x50.png")
     plt.savefig(save_path, dpi=300)
     plt.close()
-    print(f"[✓] Tracking Dashboard PNG saved to: {save_path}")
+    print(f"[✓] 50×50 Tracking Dashboard PNG saved to: {save_path}")
 
-    csv_path = os.path.join(output_dir, "tracking_summary_all_metrics.csv")
+    csv_path = os.path.join(output_dir, "tracking_summary_50x50_metrics.csv")
     df_results.to_csv(csv_path, index=False)
-    print(f"[✓] Tracking Summary CSV saved to: {csv_path}")
+    print(f"[✓] 50×50 Tracking Summary CSV saved to: {csv_path}")
 
 
 def find_latest_checkpoint(search_pattern):
@@ -420,7 +465,6 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
             except Exception as e:
                 pass
                 
-        # Fallback for RLlib: find any checkpoint >= checkpoint_000100 (which corresponds to >= 10M timesteps)
         matches = glob.glob(pattern, recursive=True)
         post_10m_ckpts = []
         for m in matches:
@@ -441,7 +485,6 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
                 post_10m_matches.append((int(parent_dir), m))
         
         if post_10m_matches:
-            # Pick highest step checkpoint post-10M
             post_10m_matches.sort(key=lambda x: x[0], reverse=True)
             print(f"    [Post-10M Match] Found checkpoint at {post_10m_matches[0][0]:,} steps")
             return post_10m_matches[0][1]
@@ -451,7 +494,9 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
 
 if __name__ == "__main__":
     print(f"\n{'='*75}")
-    print(f"  LAUNCHING DYNAMIC TARGET TRACKING MASTER EVALUATION & DASHBOARD SUITE")
+    print(f"  50×50 ZERO-SHOT GENERALIZATION — DYNAMIC TARGET TRACKING EVALUATION")
+    print(f"  Grid: {GRID_SIZE}×{GRID_SIZE} | Battery: {MAX_BATTERY} | Steps: {TIMESTEP_LIMIT}")
+    print(f"  [Models trained on 25×25, obs matrices downscaled 50→25 via INTER_AREA]")
     print(f"  [Rule: Selecting BEST checkpoint AFTER 10 Million timesteps]")
     print(f"{'='*75}\n")
 
@@ -470,7 +515,7 @@ if __name__ == "__main__":
         ("I-DQN SelfHeal", os.path.join(SRC_DIR, "results/models/*iql_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
     ]
 
-    # Fault regimes to evaluate
+    # Fault regimes
     fault_regimes = [
         ("No_Faults_0.0", False, "No Faults (fault_prob = 0.0)"),
         ("Active_Faults_0.0005", True, "Active Faults (fault_prob = 0.0005)"),
@@ -478,7 +523,7 @@ if __name__ == "__main__":
 
     base_output_dir = os.path.expanduser("~/Desktop/Results/Tracking")
 
-    # Pre-load policies so PyTorch weights are loaded only once
+    # Pre-load policies (with 25×25 architecture) then wrap with resizer
     loaded_policies = []
     for model_name, pattern, framework, model_cls, is_self_heal in tracking_models:
         ckpt_path = find_best_post_10m_checkpoint(pattern, framework, min_timesteps=10_000_000)
@@ -486,9 +531,9 @@ if __name__ == "__main__":
         if ckpt_path:
             print(f"    Loading {framework.upper()} Checkpoint: {ckpt_path}")
             if framework == "rllib":
-                policy_fn = load_rllib_policy(model_cls, ckpt_path, model_name=model_name)
+                raw_policy_fn = load_rllib_policy(model_cls, ckpt_path, model_name=model_name)
             else:
-                policy_fn = load_epymarl_policy(ckpt_path)
+                raw_policy_fn = load_epymarl_policy(ckpt_path)
         else:
             print(f"    [!] Checkpoint pending/training: {pattern}")
             print(f"    --> Using heuristic evaluation stub for structure validation.")
@@ -496,21 +541,24 @@ if __name__ == "__main__":
                 def stub_fn(obs_dict, agents):
                     return {agent: np.random.randint(0, 9) for agent in agents}
                 return stub_fn
-            policy_fn = make_stub()
+            raw_policy_fn = make_stub()
 
-        loaded_policies.append((model_name, policy_fn, is_self_heal))
+        # Wrap with observation resizer: 50×50 → 25×25
+        resized_policy_fn = make_resizing_policy(raw_policy_fn, source_grid_size=GRID_SIZE, target_grid_size=TARGET_GRID_SIZE)
+        loaded_policies.append((model_name, resized_policy_fn, is_self_heal))
+        print(f"    [✓] Wrapped with 50→25 observation resizer")
 
     for folder_name, is_fault_active, title_tag in fault_regimes:
         print(f"\n{'='*75}")
-        print(f"  RUNNING TRACKING EVALUATION SUITE: {title_tag}")
+        print(f"  RUNNING 50×50 TRACKING EVALUATION: {title_tag}")
         print(f"{'='*75}\n")
 
         results_list = []
         all_raw_records = []
 
         for model_name, policy_fn, is_self_heal in loaded_policies:
-            print(f"  [▶] Evaluating {model_name} under {title_tag}...")
-            res = evaluate_tracking_model(policy_fn, is_fault_active=is_fault_active, n_seeds=100, grid_size=25, is_self_heal=is_self_heal)
+            print(f"  [▶] Evaluating {model_name} under {title_tag} (50×50)...")
+            res = evaluate_tracking_model_50x50(policy_fn, is_fault_active=is_fault_active, n_seeds=100, is_self_heal=is_self_heal)
             
             results_list.append({
                 "Model": model_name,
@@ -528,15 +576,15 @@ if __name__ == "__main__":
 
         df_results = pd.DataFrame(results_list)
         regime_output_dir = os.path.join(base_output_dir, folder_name)
-        generate_tracking_dashboard(df_results, regime_output_dir, title_prefix=f"Dynamic Target Tracking — {title_tag}")
+        generate_tracking_dashboard_50x50(df_results, regime_output_dir, title_prefix=f"Dynamic Target Tracking 50×50 — {title_tag}")
 
         df_raw = pd.DataFrame(all_raw_records)
-        raw_csv_path = os.path.join(regime_output_dir, "tracking_raw_seed_by_seed.csv")
+        raw_csv_path = os.path.join(regime_output_dir, "tracking_50x50_raw_seed_by_seed.csv")
         df_raw.to_csv(raw_csv_path, index=False)
         print(f"[✓] Raw seed-by-seed dataset saved to: {raw_csv_path}")
 
     print(f"\n{'='*75}")
-    print(f"  DUAL TRACKING BENCHMARK SUITES COMPLETE!")
+    print(f"  50×50 ZERO-SHOT TRACKING BENCHMARK COMPLETE!")
     print(f"  Base Results Directory: {base_output_dir}")
     print(f"    - No_Faults_0.0:        {os.path.join(base_output_dir, 'No_Faults_0.0')}")
     print(f"    - Active_Faults_0.0005:  {os.path.join(base_output_dir, 'Active_Faults_0.0005')}")

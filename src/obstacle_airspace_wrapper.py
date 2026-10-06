@@ -117,19 +117,28 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
         renderer.draw = custom_draw
     
     def step(self, actions):
-        # Intercept actions: block movement into obstacle cells
+        # Intercept actions: block movement into obstacle cells (unless flying above building height Z > 3)
         base_env = self._get_base_env()
         blocked_agents = set()
         
+        # Current 3D altitudes if set by 3D adapter
+        altitudes = getattr(self, 'current_altitudes', None)
+
         if hasattr(base_env, 'agents_positions'):
             for i, agent in enumerate(self.env.possible_agents):
                 if agent not in actions:
                     continue
                 if i < len(base_env.agents_positions):
-                    current_pos = base_env.agents_positions[i]  # (x, y) in DSSE
+                    # If drone is at altitude Z > 3 (above max building height), sky is open!
+                    if altitudes is not None and i < len(altitudes) and altitudes[i] > 3:
+                        continue
+
+                    current_pos = base_env.agents_positions[i]  # (y, x) in DSSE
                     new_pos = base_env.move_drone(current_pos, actions[agent])
                     
-                    if new_pos in self.obstacle_coords:
+                    # obstacle_coords stored as (x, y) matching DSSE convention
+                    # Note: move_drone returns (y', x'), so check (new_pos[1], new_pos[0]) matching (x, y)
+                    if (new_pos[1], new_pos[0]) in self.obstacle_coords:
                         # Block: force action to SEARCH (8) = stay in place
                         actions[agent] = 8
                         blocked_agents.add(agent)

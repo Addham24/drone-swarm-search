@@ -1,30 +1,18 @@
 """
-Evaluation and Master Dashboard Generation Suite for Dynamic Target Tracking
-=============================================================================
-Evaluates trained tracking models (RSPO V2, MAPPO, QMIX, MAA2C, COMA, IQL across Vanilla & SelfHeal)
-over 100 test seeds per model.
+25×25 Obstacle Airspace Evaluation for Dynamic Target Tracking
+================================================================
+Evaluates all 12 trained 25×25 tracking models on a 25×25 grid with physical obstacles.
 
-IMPORTANT:
-Evaluation is PURELY EMPIRICAL on fixed test seeds (seed 1000 to 1099).
-It does NOT use training logs (which differ between EPyMARL and RLlib).
-Instead, it loads the trained PyTorch model weights from both frameworks and executes
-identical rollouts in the PettingZoo tracking environment.
-
-Checkpoint Selection Rule:
-Only selects checkpoints trained AFTER 10 Million timesteps (t >= 10,000,000).
-Among post-10M checkpoints, selects the BEST (lowest ep length / peak performance) checkpoint.
-
-Metrics Evaluated:
-  1. Target Intercept / Discovery Rate (%)
-  2. Mean Time-to-Discovery / Intercept (steps)
-  3. Agent Attrition Rate (crashes per episode)
-  4. Swarm Survival Rate (%)
-  5. Fleet Average Battery Level (%)
+Obstacle Setup:
+  - 16 building obstacles (loaded from src/obstacle_skyline_25.npy)
+  - Impassable movement blocking (drones retain position on collision attempt)
+  - Collision penalty (-2.0)
+  - Obstacles encoded as -1.0 in observation matrices
 
 Outputs:
-  - ~/Desktop/Results/Tracking/dashboard_tracking_25x25.png
-  - ~/Desktop/Results/Tracking/tracking_summary_all_metrics.csv
-  - ~/Desktop/Results/Tracking/tracking_raw_seed_by_seed.csv
+  - ~/Desktop/Results/Tracking/No_Faults_0.0/dashboard_tracking_25x25_obstacles.png
+  - ~/Desktop/Results/Tracking/Active_Faults_0.0005/dashboard_tracking_25x25_obstacles.png
+  - Corresponding CSV files
 """
 
 import os
@@ -32,7 +20,6 @@ import sys
 import glob
 import re
 import pickle
-import pathlib
 import numpy as np
 import pandas as pd
 import torch as th
@@ -51,6 +38,13 @@ from modules.agents.cnn_agent import CNNAgent
 from modules.agents.rnn_agent import RNNAgent
 from train_rspo_v2_vanilla import RSPOModelV2
 from train_mappo_vanilla import CNNModel as MAPPOModelVanilla
+
+
+# ── Environment Constants ──
+GRID_SIZE = 25
+TIMESTEP_LIMIT = 750
+MAX_BATTERY = 125
+OBSTACLE_MASK_PATH = os.path.join(SRC_DIR, "obstacle_skyline_25.npy")
 
 
 class MockArgs:
@@ -74,7 +68,7 @@ class VersionCompatibilityUnpickler(pickle.Unpickler):
 def load_rllib_policy(model_cls, checkpoint_path, model_name="TrackingModel"):
     """Loads PyTorch weights from an RLlib checkpoint directory or .pt file."""
     from gymnasium.spaces import Box, Tuple as GymTuple, Discrete
-    obs_space = GymTuple([Box(-1.0, 1.0, (22,), dtype=np.float32), Box(0.0, 1.0, (25, 25), dtype=np.float32)])
+    obs_space = GymTuple([Box(-1.0, 1.0, (22,), dtype=np.float32), Box(-1.0, 1.0, (25, 25), dtype=np.float32)])
     act_space = Discrete(9)
 
     model = model_cls(obs_space, act_space, 9, {}, model_name)
@@ -167,17 +161,8 @@ def load_epymarl_policy(model_th_path):
     return policy_fn
 
 
-def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_size=25, is_self_heal=False):
-    """
-    Evaluates a policy function over n_seeds in the tracking environment.
-    
-    Metric definitions:
-      - Attrition Rate: Number of drones that crashed/stranded during the episode (once crashed, permanently gone).
-      - Swarm Survival Rate: Percentage of the 4 initial drones that survived the entire episode without crashing.
-        Derived as (4 - unique_crashed_agents) / 4 * 100.
-        This avoids relying on the obs dictionary at episode end, which is unreliable in PettingZoo
-        (agents are removed from obs when the environment terminates, not only when they crash).
-    """
+def evaluate_tracking_model_obstacles(policy_fn, obstacle_mask, is_fault_active=True, n_seeds=100, is_self_heal=False):
+    """Evaluates a policy function over n_seeds in the 25×25 obstacle tracking environment."""
     fault_prob = 0.0005 if is_fault_active else 0.0
     
     target_found_list = []
@@ -192,29 +177,30 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
         th.manual_seed(seed)
 
         env = make_tracking_env(
-            grid_size=grid_size,
+            grid_size=GRID_SIZE,
             drone_amount=4,
             person_amount=1,
-            person_initial_position=(grid_size // 2, grid_size // 2),
-            timestep_limit=750,
-            max_battery=125,
+            person_initial_position=(GRID_SIZE // 2, GRID_SIZE // 2),
+            timestep_limit=TIMESTEP_LIMIT,
+            max_battery=MAX_BATTERY,
             fault_prob=fault_prob,
             is_self_heal=is_self_heal,
             drift_speed=1.0,
+            obstacle_mask=obstacle_mask
         )
 
         obs, infos = env.reset(seed=seed)
         done = False
         step = 0
         target_found = False
-        discovery_step = 750
+        discovery_step = TIMESTEP_LIMIT
 
         total_battery = 0
         battery_samples = 0
-        crash_events = 0          # Total crash events (can double-count same agent)
-        crashed_agents = set()    # Unique agents that crashed at least once
+        crash_events = 0
+        crashed_agents = set()
 
-        while not done and step < 750:
+        while not done and step < TIMESTEP_LIMIT:
             step += 1
             actions = policy_fn(obs, env.agents)
             obs, rewards, term, trunc, infos = env.step(actions)
@@ -246,16 +232,15 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
                 done = True
 
         target_found_list.append(100.0 if target_found else 0.0)
-        discovery_times.append(discovery_step if target_found else 750)
+        discovery_times.append(discovery_step if target_found else TIMESTEP_LIMIT)
         attrition_list.append(crash_events)
         
-        # Survival rate: proportion of drones that NEVER crashed during the episode
         n_drones = 4
         unique_crashed = len(crashed_agents)
         survival_rate = ((n_drones - unique_crashed) / n_drones) * 100.0
         survival_list.append(survival_rate)
         
-        avg_batt = ((total_battery / battery_samples) / 125.0 * 100.0) if battery_samples > 0 else 0.0
+        avg_batt = ((total_battery / battery_samples) / float(MAX_BATTERY) * 100.0) if battery_samples > 0 else 0.0
         battery_list.append(avg_batt)
 
         seed_records.append({
@@ -273,10 +258,8 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
     res_surv = float(np.mean(survival_list))
     res_batt = float(np.mean(battery_list))
 
-    # Swarm Mission Efficiency Index (SMEI %): Resilience-weighted geometric mean across 4 dimensions
-    # Prioritizes resilience & energy health (w_survival=0.30, w_battery=0.30) alongside tracking (w_target=0.20, w_speed=0.20)
     f_target = max(0.001, res_tf / 100.0)
-    f_speed = max(0.001, (750.0 - res_dt) / 750.0)
+    f_speed = max(0.001, (float(TIMESTEP_LIMIT) - res_dt) / float(TIMESTEP_LIMIT))
     f_survival = max(0.001, res_surv / 100.0)
     f_battery = max(0.001, res_batt / 100.0)
     smei = (f_target**0.20 * f_speed**0.20 * f_survival**0.30 * f_battery**0.30) * 100.0
@@ -292,13 +275,13 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
     }
 
 
-def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Target Tracking Benchmark"):
-    """Generates a master 6-panel dashboard PNG for dynamic target tracking performance."""
+def generate_tracking_dashboard_obstacles(df_results, output_dir, title_prefix="Dynamic Target Tracking 25×25 Obstacles Benchmark"):
+    """Generates a master 6-panel dashboard PNG for 25×25 tracking with obstacles."""
     os.makedirs(output_dir, exist_ok=True)
 
     plt.style.use("dark_background")
     fig, axes = plt.subplots(2, 3, figsize=(19, 11))
-    fig.suptitle(f"{title_prefix} — Master Performance Dashboard (Post-10M Checkpoints)", fontsize=17, fontweight="bold", y=0.98)
+    fig.suptitle(f"{title_prefix} — Obstacle Airspace Dashboard", fontsize=17, fontweight="bold", y=0.98)
 
     models = df_results["Model"].tolist()
     x = np.arange(len(models))
@@ -352,7 +335,7 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
     for bar in b5:
         axes[1, 1].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
-    # 6. Swarm Mission Efficiency Index (SMEI %)
+    # 6. SMEI (%)
     b6 = axes[1, 2].bar(x, df_results["SMEI (%)"], color="#e377c2", edgecolor="white")
     axes[1, 2].set_title("6. Swarm Mission Efficiency Index (SMEI %)", fontsize=12, fontweight="bold")
     axes[1, 2].set_xticks(x)
@@ -363,18 +346,17 @@ def generate_tracking_dashboard(df_results, output_dir, title_prefix="Dynamic Ta
         axes[1, 2].text(bar.get_x() + bar.get_width()/2.0, bar.get_height() + 1.5, f"{bar.get_height():.1f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    save_path = os.path.join(output_dir, "dashboard_tracking_25x25.png")
+    save_path = os.path.join(output_dir, "dashboard_tracking_25x25_obstacles.png")
     plt.savefig(save_path, dpi=300)
     plt.close()
-    print(f"[✓] Tracking Dashboard PNG saved to: {save_path}")
+    print(f"[✓] 25×25 Obstacle Tracking Dashboard PNG saved to: {save_path}")
 
-    csv_path = os.path.join(output_dir, "tracking_summary_all_metrics.csv")
+    csv_path = os.path.join(output_dir, "tracking_summary_25x25_obstacles_metrics.csv")
     df_results.to_csv(csv_path, index=False)
-    print(f"[✓] Tracking Summary CSV saved to: {csv_path}")
+    print(f"[✓] 25×25 Obstacle Tracking Summary CSV saved to: {csv_path}")
 
 
 def find_latest_checkpoint(search_pattern):
-    """Fallback helper to find most recent checkpoint."""
     matches = glob.glob(search_pattern, recursive=True)
     if not matches:
         return None
@@ -386,10 +368,6 @@ def find_latest_checkpoint(search_pattern):
 
 
 def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_000_000):
-    """
-    Selects the BEST checkpoint trained AFTER min_timesteps (10 Million timesteps).
-    Uses lowest episode length / peak iteration post-10M.
-    """
     if framework == "rllib":
         base_dir = pattern.split("/**/checkpoint_*")[0]
         progress_files = glob.glob(base_dir + "/**/progress.csv", recursive=True)
@@ -420,7 +398,6 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
             except Exception as e:
                 pass
                 
-        # Fallback for RLlib: find any checkpoint >= checkpoint_000100 (which corresponds to >= 10M timesteps)
         matches = glob.glob(pattern, recursive=True)
         post_10m_ckpts = []
         for m in matches:
@@ -432,7 +409,7 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
             post_10m_ckpts.sort(key=lambda x: x[0], reverse=True)
             return post_10m_ckpts[0][1]
 
-    else:  # EPyMARL
+    else:
         matches = glob.glob(pattern, recursive=True)
         post_10m_matches = []
         for m in matches:
@@ -441,7 +418,6 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
                 post_10m_matches.append((int(parent_dir), m))
         
         if post_10m_matches:
-            # Pick highest step checkpoint post-10M
             post_10m_matches.sort(key=lambda x: x[0], reverse=True)
             print(f"    [Post-10M Match] Found checkpoint at {post_10m_matches[0][0]:,} steps")
             return post_10m_matches[0][1]
@@ -451,9 +427,13 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
 
 if __name__ == "__main__":
     print(f"\n{'='*75}")
-    print(f"  LAUNCHING DYNAMIC TARGET TRACKING MASTER EVALUATION & DASHBOARD SUITE")
+    print(f"  25×25 OBSTACLE AIRSPACE — DYNAMIC TARGET TRACKING EVALUATION")
+    print(f"  Grid: {GRID_SIZE}×{GRID_SIZE} | Obstacles: 16 | Battery: {MAX_BATTERY} | Steps: {TIMESTEP_LIMIT}")
     print(f"  [Rule: Selecting BEST checkpoint AFTER 10 Million timesteps]")
     print(f"{'='*75}\n")
+
+    obstacle_mask = np.load(OBSTACLE_MASK_PATH)
+    print(f"[✓] Loaded obstacle mask from {OBSTACLE_MASK_PATH} ({int(obstacle_mask.sum())} obstacle cells)")
 
     tracking_models = [
         ("RSPO Vanilla", os.path.join(SRC_DIR, "ray_res/DSSE_Tracking/*RSPO_V2_Tracking_Vanilla*/**/checkpoint_*"), "rllib", RSPOModelV2, False),
@@ -470,7 +450,6 @@ if __name__ == "__main__":
         ("I-DQN SelfHeal", os.path.join(SRC_DIR, "results/models/*iql_tracking_selfheal*/**/agent.th"), "epymarl", None, True),
     ]
 
-    # Fault regimes to evaluate
     fault_regimes = [
         ("No_Faults_0.0", False, "No Faults (fault_prob = 0.0)"),
         ("Active_Faults_0.0005", True, "Active Faults (fault_prob = 0.0005)"),
@@ -478,7 +457,6 @@ if __name__ == "__main__":
 
     base_output_dir = os.path.expanduser("~/Desktop/Results/Tracking")
 
-    # Pre-load policies so PyTorch weights are loaded only once
     loaded_policies = []
     for model_name, pattern, framework, model_cls, is_self_heal in tracking_models:
         ckpt_path = find_best_post_10m_checkpoint(pattern, framework, min_timesteps=10_000_000)
@@ -491,7 +469,6 @@ if __name__ == "__main__":
                 policy_fn = load_epymarl_policy(ckpt_path)
         else:
             print(f"    [!] Checkpoint pending/training: {pattern}")
-            print(f"    --> Using heuristic evaluation stub for structure validation.")
             def make_stub():
                 def stub_fn(obs_dict, agents):
                     return {agent: np.random.randint(0, 9) for agent in agents}
@@ -502,15 +479,15 @@ if __name__ == "__main__":
 
     for folder_name, is_fault_active, title_tag in fault_regimes:
         print(f"\n{'='*75}")
-        print(f"  RUNNING TRACKING EVALUATION SUITE: {title_tag}")
+        print(f"  RUNNING 25×25 OBSTACLE TRACKING EVALUATION: {title_tag}")
         print(f"{'='*75}\n")
 
         results_list = []
         all_raw_records = []
 
         for model_name, policy_fn, is_self_heal in loaded_policies:
-            print(f"  [▶] Evaluating {model_name} under {title_tag}...")
-            res = evaluate_tracking_model(policy_fn, is_fault_active=is_fault_active, n_seeds=100, grid_size=25, is_self_heal=is_self_heal)
+            print(f"  [▶] Evaluating {model_name} under {title_tag} (25×25 Obstacles)...")
+            res = evaluate_tracking_model_obstacles(policy_fn, obstacle_mask, is_fault_active=is_fault_active, n_seeds=100, is_self_heal=is_self_heal)
             
             results_list.append({
                 "Model": model_name,
@@ -528,16 +505,14 @@ if __name__ == "__main__":
 
         df_results = pd.DataFrame(results_list)
         regime_output_dir = os.path.join(base_output_dir, folder_name)
-        generate_tracking_dashboard(df_results, regime_output_dir, title_prefix=f"Dynamic Target Tracking — {title_tag}")
+        generate_tracking_dashboard_obstacles(df_results, regime_output_dir, title_prefix=f"Dynamic Target Tracking 25×25 Obstacles — {title_tag}")
 
         df_raw = pd.DataFrame(all_raw_records)
-        raw_csv_path = os.path.join(regime_output_dir, "tracking_raw_seed_by_seed.csv")
+        raw_csv_path = os.path.join(regime_output_dir, "tracking_25x25_obstacles_raw_seed_by_seed.csv")
         df_raw.to_csv(raw_csv_path, index=False)
         print(f"[✓] Raw seed-by-seed dataset saved to: {raw_csv_path}")
 
     print(f"\n{'='*75}")
-    print(f"  DUAL TRACKING BENCHMARK SUITES COMPLETE!")
+    print(f"  25×25 OBSTACLE TRACKING BENCHMARK COMPLETE!")
     print(f"  Base Results Directory: {base_output_dir}")
-    print(f"    - No_Faults_0.0:        {os.path.join(base_output_dir, 'No_Faults_0.0')}")
-    print(f"    - Active_Faults_0.0005:  {os.path.join(base_output_dir, 'Active_Faults_0.0005')}")
     print(f"{'='*75}\n")

@@ -23,23 +23,19 @@ def make_tracking_env(
     is_self_heal=False,
     drift_speed=1.0,
     positions=None,
-    render_mode=None
+    obstacle_mask=None
 ):
     """
     Constructs the dynamic target tracking environment with full wrapper stack:
-    DroneSwarmSearch -> AllPositionsWrapper -> BatteryStationWrapper -> RandomDriftWrapper -> TrackingRewardWrapper -> RetainDronePosWrapper
+    DroneSwarmSearch -> AllPositionsWrapper -> BatteryStationWrapper -> RandomDriftWrapper -> TrackingRewardWrapper -> RetainDronePosWrapper -> (ObstacleAirspaceWrapper)
     """
-    env_kwargs = {
-        "grid_size": grid_size,
-        "drone_amount": drone_amount,
-        "person_amount": person_amount,
-        "person_initial_position": person_initial_position,
-        "timestep_limit": timestep_limit,
-    }
-    if render_mode is not None:
-        env_kwargs["render_mode"] = render_mode
-
-    env = DroneSwarmSearch(**env_kwargs)
+    env = DroneSwarmSearch(
+        grid_size=grid_size,
+        drone_amount=drone_amount,
+        person_amount=person_amount,
+        person_initial_position=person_initial_position,
+        timestep_limit=timestep_limit,
+    )
     
     # 1. Expand observation space to include all drone positions
     env = AllPositionsWrapper(env)
@@ -72,5 +68,10 @@ def make_tracking_env(
     if positions is None:
         positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
     env = RetainDronePosWrapper(env, positions)
+
+    # 6. Physical Obstacle Airspace (if obstacle_mask provided)
+    if obstacle_mask is not None:
+        from obstacle_airspace_wrapper import ObstacleAirspaceWrapper
+        env = ObstacleAirspaceWrapper(env, obstacle_mask)
 
     return env

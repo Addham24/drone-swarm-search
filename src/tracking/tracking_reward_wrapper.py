@@ -69,8 +69,11 @@ class TrackingRewardWrapper(BaseParallelWrapper):
                 self.prev_prob[agent] = curr_prob
 
                 # 3. Discovery Jackpot
-                # DSSE native gives reward 1.0 on search_and_find
-                if rewards.get(agent, 0.0) >= 1.0:
+                # Use DSSE native info["Found"] flag — NOT reward magnitude,
+                # because BatteryStationWrapper compensation can inflate
+                # intermediate rewards above 1.0, causing false positives.
+                agent_info = infos.get(agent, {})
+                if isinstance(agent_info, dict) and agent_info.get("Found", False):
                     shaped_reward += self.discovery_bonus
 
                 rewards[agent] = float(shaped_reward)

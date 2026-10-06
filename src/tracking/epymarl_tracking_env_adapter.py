@@ -86,6 +86,7 @@ class DSSETrackingMultiAgentEnv:
         self.steps_count = 0
         obs_dict, infos = self.env.reset(**kwargs)
         self._current_obs = obs_dict
+        self._infos = infos
         return self.get_obs(), self.get_state()
 
     def step(self, actions):
@@ -107,6 +108,7 @@ class DSSETrackingMultiAgentEnv:
 
         obs_dict, rewards_dict, term_dict, trunc_dict, infos = self.env.step(action_dict)
         self._current_obs = obs_dict
+        self._infos = infos
 
         rewards = [rewards_dict.get(agent, 0.0) for agent in self.agents]
         reward = float(sum(rewards))
@@ -117,7 +119,10 @@ class DSSETrackingMultiAgentEnv:
         truncated = all_trunc
 
         info = {
-            "target_found": any(r >= 1.0 for r in rewards_dict.values())
+            "target_found": any(
+                isinstance(self._infos.get(a), dict) and self._infos.get(a, {}).get("Found", False)
+                for a in self._infos
+            )
         }
 
         return self.get_obs(), reward, terminated, truncated, info
