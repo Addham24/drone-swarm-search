@@ -618,6 +618,7 @@ def run_task_evaluations(task, n_seeds, loaded_policies):
     with open(os.path.join(base_output, "run_manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2, default=str)
 
+    total_runs = len(ENV_CONFIGS) * len(FAULT_REGIMES)
     for env_config in ENV_CONFIGS:
         obstacle_mask = _resolve_obstacle_mask(env_config["grid_size"]) if env_config["has_obstacles"] else None
 
@@ -627,7 +628,7 @@ def run_task_evaluations(task, n_seeds, loaded_policies):
             output_dir = os.path.join(base_output, env_config["tag"], fault_regime["tag"])
 
             print(f"\n{'═'*75}")
-            print(f"  3D {task.upper()} RUN {run_count}/8: {run_label}")
+            print(f"  3D {task.upper()} RUN {run_count}/{total_runs}: {run_label}")
             print(f"  Output: {output_dir}")
             print(f"{'═'*75}")
 
