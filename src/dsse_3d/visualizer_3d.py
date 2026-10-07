@@ -143,6 +143,23 @@ def draw_obstacles_3d(ax, obstacle_heights):
         )
 
 
+def draw_target_3d(ax, target_pos):
+    """
+    Render the moving target person in 3D as a glowing red avatar marker on the ground.
+    """
+    if target_pos is None:
+        return
+    tx, ty = target_pos
+    cx, cy = tx + 0.5, ty + 0.5
+    # 1. Ground target star marker
+    ax.scatter([cx], [cy], [0.05], color='#ff2222', edgecolor='#ffff00', linewidth=1.2, s=200, marker='*', zorder=10)
+    # 2. 3D Person Target Sphere / Marker at Z=0.4
+    ax.scatter([cx], [cy], [0.4], color='#ff0033', edgecolor='white', linewidth=1.5, s=140, marker='o', zorder=11)
+    # 3. Label above target
+    ax.text(cx, cy, 0.9, "🎯 Target", color='#ff3333', fontsize=9.5, fontweight='bold', ha='center', zorder=12)
+
+
+
 def draw_drones_3d(ax, voxel_grid, alive_mask=None):
     """
     Draw drone markers at their 3D positions with altitude drop-lines.
@@ -323,12 +340,24 @@ class DSSE3DVisualizer:
             # Get target position for tracking mode
             if self.task == "tracking":
                 base_env = self.env._get_base_env()
-                if hasattr(base_env, 'person_positions') and base_env.person_positions:
+                if hasattr(base_env, 'persons_set') and base_env.persons_set:
+                    p = list(base_env.persons_set)[0]
+                    if hasattr(p, 'get_position'):
+                        pos = p.get_position()
+                        # DSSE Person get_position() returns (y, x) = (row, col)
+                        # 3D plot expects (x, y) = (col, row)
+                        target_pos = (int(pos[1]), int(pos[0]))
+                    elif hasattr(p, 'x') and hasattr(p, 'y'):
+                        target_pos = (int(p.x), int(p.y))
+                elif hasattr(base_env, 'person_positions') and base_env.person_positions:
                     tp = base_env.person_positions[0]
-                    target_pos = (int(tp[0]), int(tp[1]))
+                    target_pos = (int(tp[1]), int(tp[0]))
                 elif hasattr(base_env, 'persons') and base_env.persons:
                     tp = base_env.persons[0]
-                    if hasattr(tp, 'x') and hasattr(tp, 'y'):
+                    if hasattr(tp, 'get_position'):
+                        pos = tp.get_position()
+                        target_pos = (int(pos[1]), int(pos[0]))
+                    elif hasattr(tp, 'x') and hasattr(tp, 'y'):
                         target_pos = (int(tp.x), int(tp.y))
 
             # Track coverage
@@ -343,6 +372,7 @@ class DSSE3DVisualizer:
             # Draw scene
             draw_ground_grid(ax, grid_size, prob_matrix, covered_cells, target_pos)
             draw_obstacles_3d(ax, obstacle_heights)
+            draw_target_3d(ax, target_pos)
             draw_trajectories_3d(ax, self.env.trajectory_history, self.max_trail)
 
             # Get alive status
