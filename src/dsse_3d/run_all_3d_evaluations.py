@@ -735,14 +735,14 @@ def run_task_evaluations(task, n_seeds, loaded_policies):
 
     total_elapsed = time.time() - total_start
     print(f"\n{'═'*75}")
-    print(f"  3D {task.upper()} ALL 8 RUNS COMPLETE! ({total_elapsed/60:.1f} min total)")
+    print(f"  3D {task.upper()} ALL {total_runs} RUNS COMPLETE! ({total_elapsed/60:.1f} min total)")
     print(f"  Results: {base_output}")
     print(f"{'═'*75}\n")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DSSE-3D Master Evaluation Suite (4 envs × 2 fault regimes × 12 models × N seeds)"
+        description="DSSE-3D Master Evaluation Suite (6 envs × 5 fault regimes × 12 models × N seeds)"
     )
     parser.add_argument("--task", type=str, default="all", choices=["tracking", "coverage", "all"],
                         help="Task to evaluate: 'tracking', 'coverage', or 'all'")
@@ -753,10 +753,10 @@ def main():
     print(f"\n{'╔'*75}")
     print(f"  DSSE-3D MASTER EVALUATION SUITE")
     print(f"  Tasks: {args.task.upper()} | Seeds: {args.n_seeds}")
-    print(f"  Environments: 4 (25x25, 25x25+Obs, 50x50, 50x50+Obs)")
-    print(f"  Fault Regimes: 2 (No Faults, Active Faults)")
+    print(f"  Environments: 6 (25x25, 25x25+Obs, 50x50, 50x50+Obs, 75x75, 75x75+Obs)")
+    print(f"  Fault Regimes: 5 (0.0, 0.00025, 0.0005, 0.00075, 0.0010)")
     print(f"  Models: 12 (RSPO, MAPPO, QMIX, MAA2C, COMA, I-DQN × Vanilla/SelfHeal)")
-    total_episodes = args.n_seeds * 12 * 8
+    total_episodes = args.n_seeds * 12 * 30
     if args.task == "all":
         total_episodes *= 2
     print(f"  Total Episodes: {total_episodes:,}")
