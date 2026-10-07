@@ -142,6 +142,26 @@ ENV_CONFIGS = [
         "free_cells": 2404,
         "label": "50×50 Obstacles",
     },
+    {
+        "tag": "75x75_Standard",
+        "grid_size": 75,
+        "timestep_limit": 2250,
+        "max_battery": 375,
+        "has_obstacles": False,
+        "target_start": (38, 38),
+        "free_cells": 5625,
+        "label": "75×75 Standard",
+    },
+    {
+        "tag": "75x75_Obstacles",
+        "grid_size": 75,
+        "timestep_limit": 2250,
+        "max_battery": 375,
+        "has_obstacles": True,
+        "target_start": (38, 38),
+        "free_cells": 5481,
+        "label": "75×75 Obstacles",
+    },
 ]
 
 FAULT_REGIMES = [
@@ -640,8 +660,7 @@ def run_task_evaluations(task, n_seeds, loaded_policies):
                 print(f"\n    [▶] {model_name}...", end=" ", flush=True)
                 model_start = time.time()
 
-                if task == "tracking" and env_config["grid_size"] != 25:
-                    # 2D tracking protocol: 50x50 observation -> 25x25 (BOX resample, x4 mass)
+                if env_config["grid_size"] != 25:
                     policy_fn = make_resizing_policy(
                         base_policy_fn, source_grid_size=env_config["grid_size"], target_grid_size=25)
                 else:
