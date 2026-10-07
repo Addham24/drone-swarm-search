@@ -193,18 +193,18 @@ def build_model_registry(task):
         ]
     else:  # coverage
         return [
-            ("RSPO Vanilla",   "rllib",     RSPOModelV2,      False, "ray_res/DSSE_V2/*RSPO_V2_Vanilla*/**/checkpoint_*"),
-            ("RSPO SelfHeal",  "rllib",     RSPOModelV2,      True,  "ray_res/DSSE_V2/*RSPO_V2_SelfHeal*/**/checkpoint_*"),
-            ("MAPPO Vanilla",  "rllib",     MAPPOModelVanilla, False, "ray_res/DSSE_V2/*MAPPO_Vanilla*/**/checkpoint_*"),
-            ("MAPPO SelfHeal", "rllib",     MAPPOModelVanilla, True,  "ray_res/DSSE_V2/*MAPPO_SelfHeal*/**/checkpoint_*"),
-            ("QMIX Vanilla",   "epymarl",   None,             False, "results/models/*qmix_vanilla*/**/agent.th"),
+            ("RSPO Vanilla",   "rllib",     RSPOModelV2,      False, "ray_res/DSSE_Coverage/*RSPO_V2_Vanilla*/**/checkpoint_*"),
+            ("RSPO SelfHeal",  "rllib",     RSPOModelV2,      True,  "ray_res/DSSE_Coverage/*RSPO_V2_SelfHeal*/**/checkpoint_*"),
+            ("MAPPO Vanilla",  "rllib",     MAPPOModelVanilla, False, "ray_res/DSSE_Coverage/*MAPPO_vanilla*/**/checkpoint_*"),
+            ("MAPPO SelfHeal", "rllib",     MAPPOModelVanilla, True,  "ray_res/DSSE_Coverage/*MAPPO_selfheal*/**/checkpoint_*"),
+            ("QMIX Vanilla",   "rllib_dqn", None,             False, "ray_res/DSSE_Coverage/*QMIX_vanilla_I-DQN_vanilla*/**/checkpoint_*"),
             ("QMIX SelfHeal",  "epymarl",   None,             True,  "results/models/*qmix_selfheal*/**/agent.th"),
-            ("MAA2C Vanilla",  "epymarl",   None,             False, "results/models/*maa2c_vanilla*/**/agent.th"),
-            ("MAA2C SelfHeal", "epymarl",   None,             True,  "results/models/*maa2c_selfheal*/**/agent.th"),
+            ("MAA2C Vanilla",  "epymarl",   None,             False, "results/models/*maa2c_cnn_bigbatch_v3_vanilla*/**/agent.th"),
+            ("MAA2C SelfHeal", "epymarl",   None,             True,  "results/models/*maa2c_cnn_bigbatch_v3_*/**/agent.th"),
             ("COMA Vanilla",   "epymarl",   None,             False, "results/models/*coma_vanilla*/**/agent.th"),
-            ("COMA SelfHeal",  "epymarl",   None,             True,  "results/models/*coma_selfheal*/**/agent.th"),
-            ("I-DQN Vanilla",   "rllib_dqn", None,             False, "ray_res/DSSE_V2/*I_DQN_Vanilla*/**/checkpoint_*"),
-            ("I-DQN SelfHeal",  "rllib_dqn", None,             True,  "ray_res/DSSE_V2/*I_DQN_SelfHeal*/**/checkpoint_*"),
+            ("COMA SelfHeal",  "epymarl",   None,             True,  "results/models/*coma_selfhealing*/**/agent.th"),
+            ("I-DQN Vanilla",   "rllib_dqn", None,             False, "ray_res/DSSE_Coverage/*QMIX_vanilla_I-DQN_vanilla*/**/checkpoint_*"),
+            ("I-DQN SelfHeal",  "rllib_dqn", None,             True,  "ray_res/DSSE_Coverage/*QMIX_I-DQN_selfheal*/**/checkpoint_*"),
         ]
 
 
@@ -228,7 +228,7 @@ def load_all_2d_policies(task):
         if framework == "rllib":
             raw_fn = load_rllib_ppo_policy(model_cls, ckpt_path, model_name=model_name, greedy=(task == "coverage"))
         elif framework == "rllib_dqn":
-            raw_fn = load_rllib_dqn_policy(ckpt_path, model_name=model_name)
+            raw_fn = load_rllib_dqn_policy(ckpt_path)
         else:
             raw_fn = load_epymarl_policy_strict(ckpt_path, n_agents=4)
 
@@ -239,8 +239,8 @@ def load_all_2d_policies(task):
 
 def evaluate_tracking_2d_episode(policy_fn, env_config, fault_prob, is_self_heal, n_seeds, obstacle_mask):
     grid_size = env_config["grid_size"]
-    if grid_size == 50:
-        policy_fn = make_resizing_policy(policy_fn, source_grid_size=50, target_grid_size=25)
+    if grid_size != 25:
+        policy_fn = make_resizing_policy(policy_fn, source_grid_size=grid_size, target_grid_size=25)
     records = []
 
     for seed in range(1000, 1000 + n_seeds):
@@ -341,6 +341,8 @@ def evaluate_tracking_2d_episode(policy_fn, env_config, fault_prob, is_self_heal
 
 def evaluate_coverage_2d_episode(policy_fn, env_config, fault_prob, is_self_heal, n_seeds, obstacle_mask):
     grid_size = env_config["grid_size"]
+    if grid_size != 25:
+        policy_fn = make_resizing_policy(policy_fn, source_grid_size=grid_size, target_grid_size=25)
     prob_path = _resolve_prob_matrix(grid_size, env_config["has_obstacles"])
     records = []
 
