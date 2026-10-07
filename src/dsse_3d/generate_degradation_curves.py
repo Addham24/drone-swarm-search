@@ -8,11 +8,6 @@ Parses summary CSV files across all 5 fault severity levels:
     - fault_prob = 0.00075 (High Faults)
     - fault_prob = 0.0010  (Severe Faults)
 
-Generates publication-quality line plots (Fault Probability vs. Metric) for:
-    1. Coverage Rate (%) across fault levels per environment.
-    2. Target Intercept Rate (%) across fault levels per environment.
-    3. Swarm Survival Rate (%) across fault levels per environment.
-
 Saved to: ~/Desktop/Results/3D/degradation_curves/
 """
 
@@ -39,19 +34,58 @@ FAULT_LEVELS = [
 ENVS = ["25x25_Standard", "25x25_Obstacles", "50x50_Standard", "50x50_Obstacles"]
 TASKS = ["Coverage", "Tracking"]
 
+MODEL_ORDER = [
+    "RSPO SelfHeal", "RSPO Vanilla",
+    "MAPPO SelfHeal", "MAPPO Vanilla",
+    "QMIX SelfHeal", "QMIX Vanilla",
+    "MAA2C SelfHeal", "MAA2C Vanilla",
+    "COMA SelfHeal", "COMA Vanilla",
+    "I-DQN SelfHeal", "I-DQN Vanilla",
+]
+
 COLOR_MAP = {
     "RSPO SelfHeal": "#1f77b4",
-    "RSPO Vanilla": "#aec7e8",
+    "RSPO Vanilla": "#3182bd",
     "MAPPO SelfHeal": "#ff7f0e",
-    "MAPPO Vanilla": "#ffbb78",
+    "MAPPO Vanilla": "#fdd0a2",
     "QMIX SelfHeal": "#2ca02c",
-    "QMIX Vanilla": "#98df8a",
+    "QMIX Vanilla": "#a1d99b",
     "MAA2C SelfHeal": "#d62728",
-    "MAA2C Vanilla": "#ff9896",
+    "MAA2C Vanilla": "#fdae6b",
     "COMA SelfHeal": "#9467bd",
-    "COMA Vanilla": "#c5b0d5",
+    "COMA Vanilla": "#bcbddc",
     "I-DQN SelfHeal": "#8c564b",
     "I-DQN Vanilla": "#c49c94",
+}
+
+MARKER_MAP = {
+    "RSPO SelfHeal": "o",
+    "RSPO Vanilla": "s",
+    "MAPPO SelfHeal": "^",
+    "MAPPO Vanilla": "v",
+    "QMIX SelfHeal": "D",
+    "QMIX Vanilla": "d",
+    "MAA2C SelfHeal": "P",
+    "MAA2C Vanilla": "X",
+    "COMA SelfHeal": "*",
+    "COMA Vanilla": "h",
+    "I-DQN SelfHeal": "p",
+    "I-DQN Vanilla": "8",
+}
+
+LINESTYLE_MAP = {
+    "RSPO SelfHeal": "-",
+    "RSPO Vanilla": "--",
+    "MAPPO SelfHeal": "-",
+    "MAPPO Vanilla": "-.",
+    "QMIX SelfHeal": "-",
+    "QMIX Vanilla": ":",
+    "MAA2C SelfHeal": "-",
+    "MAA2C Vanilla": "--",
+    "COMA SelfHeal": "-",
+    "COMA Vanilla": ":",
+    "I-DQN SelfHeal": "-",
+    "I-DQN Vanilla": "-.",
 }
 
 
@@ -64,8 +98,6 @@ def generate_degradation_plots():
         
         for env_idx, env in enumerate(ENVS):
             ax = axes[env_idx // 2, env_idx % 2]
-            
-            # Data structure: model -> list of (fault_prob, metric_val)
             model_data = {}
             
             for fault_tag, fault_prob in FAULT_LEVELS:
@@ -79,20 +111,28 @@ def generate_degradation_plots():
                             model_data[m] = []
                         model_data[m].append((fault_prob, val))
             
-            # Plot line for each model
-            for m, points in model_data.items():
+            sorted_models = [m for m in MODEL_ORDER if m in model_data] + [m for m in model_data if m not in MODEL_ORDER]
+            
+            for m_idx, m in enumerate(sorted_models):
+                points = model_data[m]
                 if points:
                     points.sort(key=lambda p: p[0])
-                    x_vals = [p[0] * 10000 for p in points]  # Scale x to 10^-4 for readable ticks
-                    y_vals = [p[1] for p in points]
+                    x_vals = [p[0] * 10000 for p in points]
+                    
+                    offset = (m_idx - len(sorted_models)/2.0) * 0.08 if task == "Coverage" else 0.0
+                    y_vals = [p[1] + offset for p in points]
                     
                     is_rspo = "RSPO" in m
-                    lw = 2.5 if is_rspo else 1.2
-                    ls = "-" if "SelfHeal" in m else "--"
-                    alpha = 1.0 if is_rspo else 0.6
+                    lw = 2.2 if is_rspo else 1.4
+                    ls = LINESTYLE_MAP.get(m, "-")
+                    marker = MARKER_MAP.get(m, "o")
                     color = COLOR_MAP.get(m, None)
                     
-                    ax.plot(x_vals, y_vals, label=m, color=color, linestyle=ls, linewidth=lw, alpha=alpha, marker="o", markersize=4)
+                    ax.plot(
+                        x_vals, y_vals, label=m, color=color, linestyle=ls,
+                        linewidth=lw, alpha=0.9, marker=marker, markersize=5,
+                        markeredgecolor="white", markeredgewidth=0.5
+                    )
             
             ax.set_title(f"Environment: {env.replace('_', ' ')}", fontsize=12, fontweight="bold")
             ax.set_xlabel("Fault Probability (×10⁻⁴ per step)", fontsize=10)
@@ -101,7 +141,7 @@ def generate_degradation_plots():
             ax.grid(True, linestyle="--", alpha=0.5)
             
             if env_idx == 0:
-                ax.legend(fontsize=7, loc="upper right", ncol=2)
+                ax.legend(fontsize=7.5, loc="upper right", ncol=2, framealpha=0.9)
                 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         save_path = os.path.join(OUTPUT_DIR, f"{task.lower()}_fault_degradation_curves.png")
