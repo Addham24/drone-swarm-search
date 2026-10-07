@@ -156,7 +156,7 @@ def draw_target_3d(ax, target_pos):
     # 2. 3D Person Target Sphere / Marker at Z=0.4
     ax.scatter([cx], [cy], [0.4], color='#ff0033', edgecolor='white', linewidth=1.5, s=140, marker='o', zorder=11)
     # 3. Label above target
-    ax.text(cx, cy, 0.9, "🎯 Target", color='#ff3333', fontsize=9.5, fontweight='bold', ha='center', zorder=12)
+    ax.text(cx, cy, 0.9, "TARGET", color='#ff3333', fontsize=9.5, fontweight='bold', ha='center', zorder=12)
 
 
 
