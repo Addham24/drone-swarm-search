@@ -544,14 +544,15 @@ def generate_coverage_2d_dashboard(df, output_dir, title):
     df.to_csv(csv_path, index=False)
 
 
-def run_2d_evaluations(task, n_seeds, loaded_policies):
+def run_2d_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
     base_output = os.path.expanduser(f"~/Desktop/Results/2D/{task.title()}")
     os.makedirs(base_output, exist_ok=True)
 
-    total_runs = len(ENV_CONFIGS) * len(FAULT_REGIMES)
+    configs_to_run = [c for c in ENV_CONFIGS if c["grid_size"] == grid_size_filter] if grid_size_filter else ENV_CONFIGS
+    total_runs = len(configs_to_run) * len(FAULT_REGIMES)
     run_idx = 0
 
-    for env_cfg in ENV_CONFIGS:
+    for env_cfg in configs_to_run:
         obstacle_mask = _resolve_obstacle_mask(env_cfg["grid_size"]) if env_cfg["has_obstacles"] else None
 
         for fault_cfg in FAULT_REGIMES:
@@ -609,13 +610,16 @@ def run_2d_evaluations(task, n_seeds, loaded_policies):
 def main():
     parser = argparse.ArgumentParser(description="DSSE-2D Master Evaluation Suite")
     parser.add_argument("--task", type=str, default="all", choices=["tracking", "coverage", "all"])
+    parser.add_argument("--grid_size", type=int, default=None, choices=[25, 50, 75],
+                        help="Filter evaluations by grid size (e.g., --grid_size 75 for 75x75 environments only)")
     parser.add_argument("--n_seeds", type=int, default=100)
     args = parser.parse_args()
 
+    env_desc = f"Grid Size {args.grid_size} (75x75 Standard & Obstacles)" if args.grid_size else "All 6 Environments"
     print(f"\n{'╔'*75}")
     print(f"  DSSE-2D MASTER EVALUATION SUITE")
     print(f"  Tasks: {args.task.upper()} | Seeds: {args.n_seeds}")
-    print(f"  Environments: 6 (25x25, 25x25+Obs, 50x50, 50x50+Obs, 75x75, 75x75+Obs)")
+    print(f"  Environments: {env_desc}")
     print(f"  Fault Regimes: 5 (0.0, 0.00025, 0.0005, 0.00075, 0.0010)")
     print(f"{'╚'*75}\n")
 
@@ -623,7 +627,7 @@ def main():
 
     for task in tasks_to_run:
         loaded = load_all_2d_policies(task)
-        run_2d_evaluations(task, args.n_seeds, loaded)
+        run_2d_evaluations(task, args.n_seeds, loaded, grid_size_filter=args.grid_size)
 
     print(f"\n{'═'*75}")
     print(f"  ALL DSSE-2D EVALUATIONS COMPLETE!")

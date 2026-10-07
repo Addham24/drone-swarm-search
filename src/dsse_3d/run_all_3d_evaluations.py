@@ -617,12 +617,14 @@ def generate_coverage_3d_dashboard(df, output_dir, title):
 # Main Runner
 # ──────────────────────────────────────────────────────────────────────────────
 
-def run_task_evaluations(task, n_seeds, loaded_policies):
-    """Run all 20 evaluation configurations for a single task."""
+def run_task_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
+    """Run evaluation configurations for a single task."""
     base_output = os.path.expanduser(f"~/Desktop/Results/3D/{task.title()}")
     os.makedirs(base_output, exist_ok=True)
     total_start = time.time()
     run_count = 0
+
+    configs_to_run = [c for c in ENV_CONFIGS if c["grid_size"] == grid_size_filter] if grid_size_filter else ENV_CONFIGS
 
     # Reproducibility manifest: exact checkpoints + evaluation protocol
     manifest = {
@@ -632,14 +634,14 @@ def run_task_evaluations(task, n_seeds, loaded_policies):
         "rllib_action_selection": "greedy_argmax" if task == "coverage" else "stochastic_sample (matches 2D tracking)",
         "epymarl_action_selection": "greedy_argmax",
         "checkpoints": {name: path for name, _, _, path in loaded_policies},
-        "env_configs": ENV_CONFIGS,
+        "env_configs": configs_to_run,
         "fault_regimes": FAULT_REGIMES,
     }
     with open(os.path.join(base_output, "run_manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2, default=str)
 
-    total_runs = len(ENV_CONFIGS) * len(FAULT_REGIMES)
-    for env_config in ENV_CONFIGS:
+    total_runs = len(configs_to_run) * len(FAULT_REGIMES)
+    for env_config in configs_to_run:
         obstacle_mask = _resolve_obstacle_mask(env_config["grid_size"]) if env_config["has_obstacles"] else None
 
         for fault_regime in FAULT_REGIMES:
@@ -746,17 +748,21 @@ def main():
     )
     parser.add_argument("--task", type=str, default="all", choices=["tracking", "coverage", "all"],
                         help="Task to evaluate: 'tracking', 'coverage', or 'all'")
+    parser.add_argument("--grid_size", type=int, default=None, choices=[25, 50, 75],
+                        help="Filter evaluations by grid size (e.g., --grid_size 75 for 75x75 environments only)")
     parser.add_argument("--n_seeds", type=int, default=100,
                         help="Number of test seeds per model (default: 100)")
     args = parser.parse_args()
 
+    env_desc = f"Grid Size {args.grid_size} (75x75 Standard & Obstacles)" if args.grid_size else "All 6 Environments"
     print(f"\n{'╔'*75}")
     print(f"  DSSE-3D MASTER EVALUATION SUITE")
     print(f"  Tasks: {args.task.upper()} | Seeds: {args.n_seeds}")
-    print(f"  Environments: 6 (25x25, 25x25+Obs, 50x50, 50x50+Obs, 75x75, 75x75+Obs)")
+    print(f"  Environments: {env_desc}")
     print(f"  Fault Regimes: 5 (0.0, 0.00025, 0.0005, 0.00075, 0.0010)")
     print(f"  Models: 12 (RSPO, MAPPO, QMIX, MAA2C, COMA, I-DQN × Vanilla/SelfHeal)")
-    total_episodes = args.n_seeds * 12 * 30
+    runs_per_task = 10 if args.grid_size else 30
+    total_episodes = args.n_seeds * 12 * runs_per_task
     if args.task == "all":
         total_episodes *= 2
     print(f"  Total Episodes: {total_episodes:,}")
@@ -766,7 +772,7 @@ def main():
 
     for task in tasks_to_run:
         loaded_policies = load_all_policies(task)
-        run_task_evaluations(task, args.n_seeds, loaded_policies)
+        run_task_evaluations(task, args.n_seeds, loaded_policies, grid_size_filter=args.grid_size)
 
     print(f"\n{'═'*75}")
     print(f"  ALL DSSE-3D EVALUATIONS COMPLETE!")
