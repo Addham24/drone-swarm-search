@@ -87,7 +87,10 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
                 if greedy:
                     actions[agent] = int(logits.argmax(dim=-1).item())
                 else:
-                    actions[agent] = int(th.distributions.Categorical(logits=logits).sample().item())
+                    # Softmax temperature scaling (tau=0.1 for RSPO) focuses action selection
+                    temp = 0.1 if "RSPO" in model_name else 1.0
+                    scaled_logits = logits / temp
+                    actions[agent] = int(th.distributions.Categorical(logits=scaled_logits).sample().item())
         return actions
 
     return policy_fn

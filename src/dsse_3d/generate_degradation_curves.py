@@ -31,11 +31,7 @@ FAULT_LEVELS = [
     ("Fault_0.001", 0.0010),
 ]
 
-ENVS = [
-    "25x25_Standard", "25x25_Obstacles",
-    "50x50_Standard", "50x50_Obstacles",
-    "75x75_Standard", "75x75_Obstacles"
-]
+ENVS = ["25x25_Standard", "25x25_Obstacles", "50x50_Standard", "50x50_Obstacles"]
 TASKS = ["Coverage", "Tracking"]
 
 MODEL_ORDER = [
@@ -97,7 +93,7 @@ def generate_degradation_plots():
     for task in TASKS:
         primary_metric = "Coverage Rate (%)" if task == "Coverage" else "Target Found Rate (%)"
         
-        fig, axes = plt.subplots(3, 2, figsize=(16, 17))
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle(f"DSSE-3D {task} — Fault Severity Degradation Curves", fontsize=16, fontweight="bold", y=0.98)
         
         for env_idx, env in enumerate(ENVS):

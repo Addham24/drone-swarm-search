@@ -94,26 +94,6 @@ ENV_CONFIGS = [
         "free_cells": 2404,
         "label": "50×50 Obstacles",
     },
-    {
-        "tag": "75x75_Standard",
-        "grid_size": 75,
-        "timestep_limit": 2250,
-        "max_battery": 375,
-        "has_obstacles": False,
-        "target_start": (38, 38),
-        "free_cells": 5625,
-        "label": "75×75 Standard",
-    },
-    {
-        "tag": "75x75_Obstacles",
-        "grid_size": 75,
-        "timestep_limit": 2250,
-        "max_battery": 375,
-        "has_obstacles": True,
-        "target_start": (38, 38),
-        "free_cells": 5481,
-        "label": "75×75 Obstacles",
-    },
 ]
 
 FAULT_REGIMES = [
@@ -615,11 +595,7 @@ def main():
     parser.add_argument("--n_seeds", type=int, default=100)
     args = parser.parse_args()
 
-    env_desc = f"Grid Size {args.grid_size} (75x75 Standard & Obstacles)" if args.grid_size else "All 6 Environments"
-    print(f"\n{'╔'*75}")
-    print(f"  DSSE-2D MASTER EVALUATION SUITE")
-    print(f"  Tasks: {args.task.upper()} | Seeds: {args.n_seeds}")
-    print(f"  Environments: {env_desc}")
+    print(f"  Environments: 4 (25x25, 25x25+Obs, 50x50, 50x50+Obs)")
     print(f"  Fault Regimes: 5 (0.0, 0.00025, 0.0005, 0.00075, 0.0010)")
     print(f"{'╚'*75}\n")
 

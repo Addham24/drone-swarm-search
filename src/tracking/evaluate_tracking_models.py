@@ -107,7 +107,8 @@ def load_rllib_policy(model_cls, checkpoint_path, model_name="TrackingModel"):
                 mat_t = th.tensor(matrix, dtype=th.float32).unsqueeze(0)
                 with th.no_grad():
                     logits, _ = model({"obs": (pos_t, mat_t)}, [], None)
-                    dist = th.distributions.Categorical(logits=logits)
+                    temp = 0.1 if "RSPO" in model_name else 1.0
+                    dist = th.distributions.Categorical(logits=logits / temp)
                     actions[agent] = int(dist.sample().item())
         return actions
 

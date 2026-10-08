@@ -142,26 +142,6 @@ ENV_CONFIGS = [
         "free_cells": 2404,
         "label": "50×50 Obstacles",
     },
-    {
-        "tag": "75x75_Standard",
-        "grid_size": 75,
-        "timestep_limit": 2250,
-        "max_battery": 375,
-        "has_obstacles": False,
-        "target_start": (38, 38),
-        "free_cells": 5625,
-        "label": "75×75 Standard",
-    },
-    {
-        "tag": "75x75_Obstacles",
-        "grid_size": 75,
-        "timestep_limit": 2250,
-        "max_battery": 375,
-        "has_obstacles": True,
-        "target_start": (38, 38),
-        "free_cells": 5481,
-        "label": "75×75 Obstacles",
-    },
 ]
 
 FAULT_REGIMES = [
