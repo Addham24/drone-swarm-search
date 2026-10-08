@@ -590,8 +590,8 @@ def run_2d_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
 def main():
     parser = argparse.ArgumentParser(description="DSSE-2D Master Evaluation Suite")
     parser.add_argument("--task", type=str, default="all", choices=["tracking", "coverage", "all"])
-    parser.add_argument("--grid_size", type=int, default=None, choices=[25, 50, 75],
-                        help="Filter evaluations by grid size (e.g., --grid_size 75 for 75x75 environments only)")
+    parser.add_argument("--grid_size", type=int, default=None, choices=[25, 50],
+                        help="Filter evaluations by grid size (25 or 50)")
     parser.add_argument("--n_seeds", type=int, default=100)
     args = parser.parse_args()
 
