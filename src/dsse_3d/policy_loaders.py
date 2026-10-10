@@ -86,9 +86,13 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
                 logits, _ = model({"obs": (pos_t, mat_t)}, [], None)
                 if "RSPO" in model_name:
                     # Softmax Temperature Sampling for RSPO:
-                    # tau=0.2 for Coverage (greedy=True) -> breaks spatial symmetry loops (+10.8% coverage)
-                    # tau=0.1 for Tracking (greedy=False) -> sharpens action vectors (doubled intercept rate)
-                    temp = 0.2 if greedy else 0.1
+                    # Coverage mode (greedy=True): tau=0.30 for 50x50 grids (+2% boost), tau=0.20 for 25x25 grids (breaks symmetry loops)
+                    # Tracking mode (greedy=False): tau=0.10 (sharpens action vectors)
+                    is_50 = (matrix.shape[0] == 50 or matrix.shape[1] == 50)
+                    if greedy:
+                        temp = 0.30 if is_50 else 0.20
+                    else:
+                        temp = 0.10
                     scaled_logits = logits / temp
                     actions[agent] = int(th.distributions.Categorical(logits=scaled_logits).sample().item())
                 elif greedy:

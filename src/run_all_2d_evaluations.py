@@ -197,7 +197,7 @@ def build_model_registry(task):
             ("RSPO SelfHeal",  "rllib",     RSPOModelV2,      True,  "ray_res/DSSE_Coverage/*RSPO_V2_SelfHeal*/**/checkpoint_*"),
             ("MAPPO Vanilla",  "rllib",     MAPPOModelVanilla, False, "ray_res/DSSE_Coverage/*MAPPO_vanilla*/**/checkpoint_*"),
             ("MAPPO SelfHeal", "rllib",     MAPPOModelVanilla, True,  "ray_res/DSSE_Coverage/*MAPPO_selfheal*/**/checkpoint_*"),
-            ("QMIX Vanilla",   "rllib_dqn", None,             False, "ray_res/DSSE_Coverage/*QMIX_vanilla_I-DQN_vanilla*/**/checkpoint_*"),
+            ("QMIX Vanilla",   "epymarl",   None,             False, "results/models/*qmix_true_vanilla*/**/agent.th"),
             ("QMIX SelfHeal",  "epymarl",   None,             True,  "results/models/*qmix_selfheal*/**/agent.th"),
             ("MAA2C Vanilla",  "epymarl",   None,             False, "results/models/*maa2c_cnn_bigbatch_v3_vanilla*/**/agent.th"),
             ("MAA2C SelfHeal", "epymarl",   None,             True,  "results/models/*maa2c_cnn_bigbatch_v3_*/**/agent.th"),
