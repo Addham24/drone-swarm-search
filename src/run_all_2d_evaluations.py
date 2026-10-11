@@ -336,8 +336,6 @@ def evaluate_tracking_2d_episode(policy_fn, env_config, fault_prob, is_self_heal
 
 def evaluate_coverage_2d_episode(policy_fn, env_config, fault_prob, is_self_heal, n_seeds, obstacle_mask):
     grid_size = env_config["grid_size"]
-    if grid_size != 25:
-        policy_fn = make_resizing_policy(policy_fn, source_grid_size=grid_size, target_grid_size=25)
     prob_path = _resolve_prob_matrix(grid_size, env_config["has_obstacles"])
     records = []
 
@@ -367,7 +365,7 @@ def evaluate_coverage_2d_episode(policy_fn, env_config, fault_prob, is_self_heal
 
         while not done and step < env_config["timestep_limit"]:
             step += 1
-            actions = policy_fn(obs, env.possible_agents, reset=(step == 1))
+            actions = policy_fn(obs, env.possible_agents, reset=(step == 1), grid_size=grid_size)
             actions = {a: v for a, v in actions.items() if a in env.agents}
             obs, rewards, term, trunc, infos = env.step(actions)
 

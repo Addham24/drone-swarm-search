@@ -88,7 +88,8 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
                     # Softmax Temperature Sampling for RSPO:
                     # Coverage mode (greedy=True): tau=0.30 for 50x50 grids (+2% boost), tau=0.20 for 25x25 grids (breaks symmetry loops)
                     # Tracking mode (greedy=False): tau=0.10 (sharpens action vectors)
-                    is_50 = (matrix.shape[0] == 50 or matrix.shape[1] == 50)
+                    g_size = kwargs.get("grid_size", matrix.shape[0])
+                    is_50 = (g_size == 50 or matrix.shape[0] == 50)
                     if greedy:
                         temp = 0.30 if is_50 else 0.20
                     else:

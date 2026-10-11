@@ -411,7 +411,7 @@ def evaluate_coverage_3d_episode(
         while not done and step < env_config["timestep_limit"]:
             step += 1
             # Stable agent ordering + per-episode recurrent reset (reset=True on step 1)
-            actions = policy_fn(obs, env.possible_agents, reset=(step == 1))
+            actions = policy_fn(obs, env.possible_agents, reset=(step == 1), grid_size=grid_size)
             actions = {a: v for a, v in actions.items() if a in env.agents}
             obs, rewards, term, trunc, infos = env.step(actions)
 
@@ -642,7 +642,7 @@ def run_task_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
                 print(f"\n    [▶] {model_name}...", end=" ", flush=True)
                 model_start = time.time()
 
-                if env_config["grid_size"] != 25:
+                if task == "tracking" and env_config["grid_size"] != 25:
                     policy_fn = make_resizing_policy(
                         base_policy_fn, source_grid_size=env_config["grid_size"], target_grid_size=25)
                 else:
