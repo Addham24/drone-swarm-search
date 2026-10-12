@@ -55,7 +55,7 @@ def _read_rllib_weights(checkpoint_path):
     return {k: (th.from_numpy(v) if not isinstance(v, th.Tensor) else v) for k, v in weights.items()}
 
 
-def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
+def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy, sample_mappo=False):
     """
     Load an RLlib PPO-family model with strict key matching.
 
@@ -63,6 +63,8 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
         greedy: True -> argmax action (matches the 2D *coverage* protocol).
                 False -> sample from the categorical policy (matches the 2D
                 *tracking* protocol).
+        sample_mappo: If True, MAPPO uses the exact same temperature-scaled
+                categorical sampling as RSPO.
     """
     from gymnasium.spaces import Box, Tuple as GymTuple, Discrete
 
@@ -76,6 +78,7 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
 
     def policy_fn(obs_dict, agents, *args, **kwargs):
         actions = {}
+        do_sample = ("RSPO" in model_name) or ("MAPPO" in model_name and (sample_mappo or kwargs.get("sample_mappo", False)))
         for agent in agents:
             if agent not in obs_dict:
                 continue
@@ -84,8 +87,8 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy):
             mat_t = th.tensor(matrix, dtype=th.float32).unsqueeze(0)
             with th.no_grad():
                 logits, _ = model({"obs": (pos_t, mat_t)}, [], None)
-                if "RSPO" in model_name:
-                    # Softmax Temperature Sampling for RSPO:
+                if do_sample:
+                    # Softmax Temperature Sampling for RSPO / Symmetric MAPPO:
                     # Coverage mode (greedy=True): tau=0.30 for 50x50 grids (+2% boost), tau=0.20 for 25x25 grids (breaks symmetry loops)
                     # Tracking mode (greedy=False): tau=0.10 (sharpens action vectors)
                     g_size = kwargs.get("grid_size", matrix.shape[0])

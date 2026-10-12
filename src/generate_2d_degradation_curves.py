@@ -19,7 +19,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-BASE_DIR = os.path.expanduser("~/Desktop/Results/2D")
+import sys
+import argparse
+
+parser = argparse.ArgumentParser(description="Generate 2D degradation curves")
+parser.add_argument("--base_dir", type=str, default=os.path.expanduser("~/Desktop/Results/2D"),
+                    help="Base results directory (e.g. ~/Desktop/Results/2D or ~/Desktop/Results/2D-mappo)")
+args = parser.parse_args()
+
+BASE_DIR = os.path.abspath(os.path.expanduser(args.base_dir))
 OUTPUT_DIR = os.path.join(BASE_DIR, "degradation_curves")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
