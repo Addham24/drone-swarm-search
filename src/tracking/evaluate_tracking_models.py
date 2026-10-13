@@ -435,6 +435,67 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
 
     else:  # EPyMARL
         matches = glob.glob(pattern, recursive=True)
+        if not matches:
+            return find_latest_checkpoint(pattern)
+
+        ckpts_by_dir = {}
+        for m in matches:
+            step_dir = os.path.basename(os.path.dirname(m))
+            if step_dir.isdigit():
+                exp_dir = os.path.dirname(os.path.dirname(m))
+                ckpts_by_dir.setdefault(exp_dir, []).append((int(step_dir), m))
+
+        best_ckpt = None
+        best_peak_val = -float("inf")
+        best_peak_step = None
+
+        for exp_dir, step_list in ckpts_by_dir.items():
+            exp_name = os.path.basename(exp_dir)
+            prefix = exp_name.split("_seed")[0]
+            tb_search_roots = [SRC_DIR, os.path.join(SRC_DIR, "epymarl")]
+            tb_dirs = []
+            for root in tb_search_roots:
+                tb_dirs.extend(glob.glob(os.path.join(root, f"results/tb_logs/**/{exp_name}"), recursive=True))
+                tb_dirs.extend(glob.glob(os.path.join(root, f"results/tb_logs_final/**/{exp_name}"), recursive=True))
+                tb_dirs.extend(glob.glob(os.path.join(root, f"results/tb_logs/**/*{prefix}*"), recursive=True))
+                tb_dirs.extend(glob.glob(os.path.join(root, f"results/tb_logs_final/**/*{prefix}*"), recursive=True))
+            
+            valid_tb = []
+            for d in tb_dirs:
+                if glob.glob(os.path.join(d, "**/*tfevents*"), recursive=True):
+                    valid_tb.append(d)
+
+            for d in valid_tb:
+                event_files = glob.glob(os.path.join(d, "**/*tfevents*"), recursive=True)
+                if not event_files:
+                    continue
+                try:
+                    from tensorboard.backend.event_processing import event_accumulator
+                    ea = event_accumulator.EventAccumulator(event_files[0])
+                    ea.Reload()
+                    tags = ea.Tags().get("scalars", [])
+                    ret_tags = [t for t in tags if "test_return_mean" in t] or [t for t in tags if "return_mean" in t]
+                    if ret_tags:
+                        events = ea.Scalars(ret_tags[0])
+                        post_10m = [e for e in events if e.step >= min_timesteps]
+                        if post_10m:
+                            peak_e = max(post_10m, key=lambda x: x.value)
+                            if peak_e.value > best_peak_val:
+                                best_peak_val = peak_e.value
+                                best_peak_step = peak_e.step
+                                post_10m_ckpts = [c for c in step_list if c[0] >= min_timesteps]
+                                if not post_10m_ckpts:
+                                    post_10m_ckpts = step_list
+                                closest = min(post_10m_ckpts, key=lambda x: abs(x[0] - best_peak_step))
+                                best_ckpt = closest[1]
+                except Exception:
+                    pass
+
+        if best_ckpt:
+            print(f"    [Post-10M Peak Match] Found peak {best_peak_val:.1f} at step {best_peak_step:,} -> {best_ckpt}")
+            return best_ckpt
+
+        # Fallback: Pick highest step checkpoint post-10M
         post_10m_matches = []
         for m in matches:
             parent_dir = os.path.basename(os.path.dirname(m))
@@ -442,9 +503,8 @@ def find_best_post_10m_checkpoint(pattern, framework="rllib", min_timesteps=10_0
                 post_10m_matches.append((int(parent_dir), m))
         
         if post_10m_matches:
-            # Pick highest step checkpoint post-10M
             post_10m_matches.sort(key=lambda x: x[0], reverse=True)
-            print(f"    [Post-10M Match] Found checkpoint at {post_10m_matches[0][0]:,} steps")
+            print(f"    [Post-10M Fallback Match] Found checkpoint at {post_10m_matches[0][0]:,} steps")
             return post_10m_matches[0][1]
             
     return find_latest_checkpoint(pattern)

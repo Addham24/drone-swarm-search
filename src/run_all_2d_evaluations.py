@@ -200,7 +200,7 @@ def build_model_registry(task):
             ("QMIX Vanilla",   "epymarl",   None,             False, "results/models/*qmix_true_vanilla*/**/agent.th"),
             ("QMIX SelfHeal",  "epymarl",   None,             True,  "results/models/*qmix_selfheal*/**/agent.th"),
             ("MAA2C Vanilla",  "epymarl",   None,             False, "results/models/*maa2c_cnn_bigbatch_v3_vanilla*/**/agent.th"),
-            ("MAA2C SelfHeal", "epymarl",   None,             True,  "results/models/*maa2c_cnn_bigbatch_v3_*/**/agent.th"),
+            ("MAA2C SelfHeal", "epymarl",   None,             True,  "results/models/*maa2c_cnn_bigbatch_v3_seed*/**/agent.th"),
             ("COMA Vanilla",   "epymarl",   None,             False, "results/models/*coma_vanilla*/**/agent.th"),
             ("COMA SelfHeal",  "epymarl",   None,             True,  "results/models/*coma_selfhealing*/**/agent.th"),
             ("I-DQN Vanilla",   "rllib_dqn", None,             False, "ray_res/DSSE_Coverage/*QMIX_vanilla_I-DQN_vanilla*/**/checkpoint_*"),
