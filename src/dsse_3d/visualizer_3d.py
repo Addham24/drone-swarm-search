@@ -30,6 +30,7 @@ Reference:
 
 import os
 import sys
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import argparse
 import numpy as np
 import matplotlib
