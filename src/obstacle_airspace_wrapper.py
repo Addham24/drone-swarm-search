@@ -38,7 +38,7 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
         super().__init__(env)
         self.obstacle_mask = obstacle_mask.copy()
         self.collision_penalty = collision_penalty
-        self.n_obstacles = int(self.obstacle_mask.sum())
+        self.n_obstacles = int((self.obstacle_mask > 0).sum())
         
         # Compute accessible free cells for adjusted coverage
         grid_h, grid_w = self.obstacle_mask.shape
@@ -49,7 +49,7 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
         self.obstacle_coords = set()
         for y in range(grid_h):
             for x in range(grid_w):
-                if self.obstacle_mask[y, x] == 1:
+                if self.obstacle_mask[y, x] > 0:
                     self.obstacle_coords.add((x, y))
         
         # Track which free cells have been searched for adjusted coverage
@@ -102,9 +102,15 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
                         if counter_x == 0 and counter_y == 0:
                             # Charging Base Station at (0,0) - Permanent Bright Emerald Green!
                             color = (40, 220, 100)
-                        elif obstacle_mask[counter_y, counter_x] == 1:
-                            # Dark Graphite / Charcoal for building obstacles!
-                            color = (40, 40, 45)
+                        elif obstacle_mask[counter_y, counter_x] > 0:
+                            h = int(obstacle_mask[counter_y, counter_x])
+                            # Shaded by height: 1: dark slate, 2: steel blue, 3: deep obsidian
+                            if h == 1:
+                                color = (55, 58, 64)
+                            elif h == 2:
+                                color = (35, 48, 68)
+                            else:
+                                color = (20, 24, 36)
                         else:
                             prob = matrix[counter_y][counter_x]
                             norm_prob = prob / max_matrix
@@ -117,7 +123,7 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
         renderer.draw = custom_draw
     
     def step(self, actions):
-        # Intercept actions: block movement into obstacle cells (unless flying above building height Z > 3)
+        # Intercept actions: block movement into obstacle cells (unless flying above building height)
         base_env = self._get_base_env()
         blocked_agents = set()
         
@@ -129,16 +135,17 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
                 if agent not in actions:
                     continue
                 if i < len(base_env.agents_positions):
-                    # If drone is at altitude Z > 3 (above max building height), sky is open!
-                    if altitudes is not None and i < len(altitudes) and altitudes[i] > 3:
-                        continue
-
                     current_pos = base_env.agents_positions[i]  # (y, x) in DSSE
                     new_pos = base_env.move_drone(current_pos, actions[agent])
                     
                     # obstacle_coords stored as (x, y) matching DSSE convention
                     # Note: move_drone returns (y', x'), so check (new_pos[1], new_pos[0]) matching (x, y)
-                    if (new_pos[1], new_pos[0]) in self.obstacle_coords:
+                    target_x, target_y = new_pos[1], new_pos[0]
+                    if (target_x, target_y) in self.obstacle_coords:
+                        target_h = int(self.obstacle_mask[target_y, target_x])
+                        # If drone is at altitude Z > target_h, it flies safely above the building!
+                        if altitudes is not None and i < len(altitudes) and altitudes[i] > target_h:
+                            continue
                         # Block: force action to SEARCH (8) = stay in place
                         actions[agent] = 8
                         blocked_agents.add(agent)
@@ -179,7 +186,7 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
                 positions, matrix = obs[agent]
                 # Clone matrix to avoid modifying shared references
                 matrix = matrix.copy()
-                matrix[self.obstacle_mask == 1] = self.OBSTACLE_OBS_VALUE
+                matrix[self.obstacle_mask > 0] = self.OBSTACLE_OBS_VALUE
                 obs[agent] = (positions, matrix)
         return obs
     

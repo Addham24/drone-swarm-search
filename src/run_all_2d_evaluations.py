@@ -532,6 +532,9 @@ def run_2d_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
 
     for env_cfg in configs_to_run:
         obstacle_mask = _resolve_obstacle_mask(env_cfg["grid_size"]) if env_cfg["has_obstacles"] else None
+        n_obs = int((obstacle_mask > 0).sum()) if obstacle_mask is not None else 0
+        env_cfg = dict(env_cfg)
+        env_cfg["free_cells"] = (env_cfg["grid_size"] * env_cfg["grid_size"]) - n_obs
 
         for fault_cfg in FAULT_REGIMES:
             run_idx += 1

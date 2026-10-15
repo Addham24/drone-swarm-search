@@ -177,10 +177,13 @@ class DSSE3DAdapter(BaseParallelWrapper):
         # Build 3D obstacle heights from 2D mask
         obstacle_heights = {}
         if obstacle_mask is not None:
+            is_multi_height = bool(obstacle_mask.max() > 1)
             for y in range(obstacle_mask.shape[0]):
                 for x in range(obstacle_mask.shape[1]):
-                    if obstacle_mask[y, x] == 1:
-                        obstacle_heights[(x, y)] = obstacle_extrusion_height
+                    if obstacle_mask[y, x] > 0:
+                        val = int(obstacle_mask[y, x])
+                        h = val if is_multi_height else obstacle_extrusion_height
+                        obstacle_heights[(x, y)] = h
 
         # Core 3D state manager
         self.voxel = VoxelGrid(

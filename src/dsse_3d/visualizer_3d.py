@@ -107,7 +107,10 @@ def draw_ground_grid(ax, grid_size, prob_matrix=None, covered_cells=None, target
             elif covered_cells is not None and (x, y) in covered_cells:
                 color = GROUND_COVERED
             elif prob_matrix is not None:
-                p = float(prob_matrix[y, x])
+                if y < prob_matrix.shape[0] and x < prob_matrix.shape[1]:
+                    p = float(prob_matrix[y, x])
+                else:
+                    p = 0.0
                 if p <= 0:
                     color = GROUND_UNVISITED
                 else:
@@ -139,20 +142,32 @@ def draw_ground_grid(ax, grid_size, prob_matrix=None, covered_cells=None, target
 
 def draw_obstacles_3d(ax, obstacle_heights):
     """
-    Render 3D obstacle prisms as semi-transparent blocks.
+    Render 3D obstacle prisms as semi-transparent blocks with height-stratified colors.
 
     Args:
         obstacle_heights: Dict of (x, y) -> height.
     """
     for (ox, oy), h in obstacle_heights.items():
-        # Draw a 3D bar (semi-transparent rectangular prism)
+        if h <= 1:
+            # Low rubble / barricades: Dark Slate Charcoal
+            face_color = (0.24, 0.26, 0.30, 0.6)
+            edge_color = (0.45, 0.48, 0.52, 0.7)
+        elif h == 2:
+            # Mid-rise compounds: Industrial Steel Blue
+            face_color = (0.14, 0.26, 0.42, 0.7)
+            edge_color = (0.35, 0.60, 0.85, 0.75)
+        else:
+            # High-rise towers (H >= 3): Obsidian Cyberpunk with glowing Cyan wireframe
+            face_color = (0.08, 0.12, 0.22, 0.82)
+            edge_color = (0.0, 0.90, 1.0, 0.9)
+
         ax.bar3d(
             ox, oy, 0,    # Base corner
             1, 1, h,      # Width, depth, height
-            color=OBSTACLE_COLOR[:3],
-            alpha=OBSTACLE_COLOR[3],
-            edgecolor=(0.4, 0.4, 0.45, 0.5),
-            linewidth=0.5,
+            color=face_color[:3],
+            alpha=face_color[3],
+            edgecolor=edge_color,
+            linewidth=0.6,
         )
 
 
@@ -345,7 +360,10 @@ class DSSE3DVisualizer:
             prob_matrix = None
             target_pos = None
 
-            if obs:
+            base_env = self.env._get_base_env()
+            if hasattr(base_env, "probability_matrix") and hasattr(base_env.probability_matrix, "get_matrix"):
+                prob_matrix = base_env.probability_matrix.get_matrix()
+            elif obs:
                 first_agent = list(obs.keys())[0]
                 if isinstance(obs[first_agent], tuple) and len(obs[first_agent]) == 2:
                     prob_matrix = obs[first_agent][1]
@@ -435,9 +453,19 @@ class DSSE3DVisualizer:
                     telemetry_lines.append(f"  D{i}: Z={alt}  Batt={batt_pct}  [{alive_str}]")
 
             if self.task == "coverage":
-                total = grid_size * grid_size
-                cov_pct = len(covered_cells) / total * 100 if total > 0 else 0
-                telemetry_lines.append(f"Coverage: {cov_pct:.1f}% ({len(covered_cells)}/{total})")
+                if hasattr(self.env, "get_coverage_rate"):
+                    cov_pct = self.env.get_coverage_rate() * 100.0
+                else:
+                    cov_pct = 0.0
+
+                if hasattr(self.env, "_coverage_universe") and self.env._coverage_universe is not None:
+                    n_free = len(self.env._coverage_universe)
+                    n_searched = len(self.env.seen_states_3d & self.env._coverage_universe)
+                else:
+                    n_free = grid_size * grid_size
+                    n_searched = len(covered_cells)
+
+                telemetry_lines.append(f"Coverage: {cov_pct:.1f}% ({n_searched}/{n_free} free cells)")
 
             metrics = self.env.get_3d_metrics()
             telemetry_lines.append(f"Alt Changes: {metrics['altitude_changes']}")

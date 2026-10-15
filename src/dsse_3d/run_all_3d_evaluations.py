@@ -623,6 +623,9 @@ def run_task_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
     total_runs = len(configs_to_run) * len(FAULT_REGIMES)
     for env_config in configs_to_run:
         obstacle_mask = _resolve_obstacle_mask(env_config["grid_size"]) if env_config["has_obstacles"] else None
+        n_obs = int((obstacle_mask > 0).sum()) if obstacle_mask is not None else 0
+        env_config = dict(env_config)
+        env_config["free_cells"] = (env_config["grid_size"] * env_config["grid_size"]) - n_obs
 
         for fault_regime in FAULT_REGIMES:
             run_count += 1
