@@ -93,9 +93,12 @@ def draw_ground_grid(ax, grid_size, prob_matrix=None, covered_cells=None, target
     For tracking: colored by probability density.
     For coverage: colored by visited/unvisited status.
     """
+    all_verts = []
+    all_colors = []
+    max_p = float(prob_matrix.max()) if prob_matrix is not None and prob_matrix.max() > 0 else 1.0
+
     for y in range(grid_size):
         for x in range(grid_size):
-            # Determine cell color
             if x == 0 and y == 0:
                 color = STATION_COLOR
             elif target_pos is not None and (x, y) == target_pos:
@@ -103,25 +106,34 @@ def draw_ground_grid(ax, grid_size, prob_matrix=None, covered_cells=None, target
             elif covered_cells is not None and (x, y) in covered_cells:
                 color = GROUND_COVERED
             elif prob_matrix is not None:
-                p = prob_matrix[y, x]
-                max_p = prob_matrix.max() if prob_matrix.max() > 0 else 1.0
-                intensity = p / max_p
-                # Blue-to-red colormap
-                color = (0.1 + 0.8 * intensity, 0.1 + 0.2 * (1 - intensity), 0.15, 0.6)
+                p = float(prob_matrix[y, x])
+                if p <= 0:
+                    color = GROUND_UNVISITED
+                else:
+                    intensity = float(np.clip(p / max_p, 0.0, 1.0))
+                    color = (
+                        float(np.clip(0.1 + 0.8 * intensity, 0.0, 1.0)),
+                        float(np.clip(0.1 + 0.2 * (1.0 - intensity), 0.0, 1.0)),
+                        0.15,
+                        0.6,
+                    )
             else:
                 color = GROUND_UNVISITED
 
-            # Draw flat tile at Z=0
             verts = [
                 [x, y, 0],
                 [x + 1, y, 0],
                 [x + 1, y + 1, 0],
                 [x, y + 1, 0],
             ]
-            ax.add_collection3d(Poly3DCollection(
-                [verts], alpha=color[3], facecolors=[color[:3]], edgecolors=[(0.3, 0.3, 0.3, 0.2)],
-                linewidths=0.3
-            ))
+            all_verts.append(verts)
+            all_colors.append(color)
+
+    if all_verts:
+        poly = Poly3DCollection(
+            all_verts, facecolors=all_colors, edgecolors=(0.3, 0.3, 0.3, 0.2), linewidths=0.3
+        )
+        ax.add_collection3d(poly)
 
 
 def draw_obstacles_3d(ax, obstacle_heights):
@@ -435,12 +447,24 @@ class DSSE3DVisualizer:
             # Camera angle
             ax.view_init(elev=25, azim=-60 + step * 0.15)
 
-            plt.draw()
-            plt.pause(self.update_interval)
+            is_agg = matplotlib.get_backend().lower() == "agg"
 
-            # Check for window close
-            if not plt.fignum_exists(fig.number):
-                break
+            if self.export_path:
+                import io
+                from PIL import Image
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), edgecolor="none", dpi=80)
+                buf.seek(0)
+                self.frames.append(Image.open(buf).copy())
+                buf.close()
+
+            if not is_agg:
+                plt.draw()
+                plt.pause(self.update_interval)
+
+                # Check for window close
+                if not plt.fignum_exists(fig.number):
+                    break
 
             # Get actions from policy
             actions = policy_fn(obs, self.env.agents)
@@ -453,17 +477,49 @@ class DSSE3DVisualizer:
                         print(f"[✓] TARGET FOUND at step {step}!")
                         telemetry_lines.append(f">>> TARGET FOUND at step {step}! <<<")
                         telemetry_text.set_text("\n".join(telemetry_lines))
-                        plt.draw()
-                        plt.pause(3.0)
-                        plt.ioff()
-                        plt.show()
+                        if self.export_path:
+                            import io
+                            from PIL import Image
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), edgecolor="none", dpi=80)
+                            buf.seek(0)
+                            win_frame = Image.open(buf).copy()
+                            buf.close()
+                            for _ in range(15):
+                                self.frames.append(win_frame)
+                            print(f"[✓] Saving {len(self.frames)} frames to {self.export_path}...")
+                            self.frames[0].save(
+                                self.export_path,
+                                save_all=True,
+                                append_images=self.frames[1:],
+                                duration=int(self.update_interval * 1000),
+                                loop=0,
+                            )
+                            print(f"[✓] Animated GIF successfully saved: {self.export_path}")
+                        if not is_agg:
+                            plt.draw()
+                            plt.pause(3.0)
+                            plt.ioff()
+                            plt.show()
                         return
 
             if all(term.values()) or all(trunc.values()):
                 break
 
-        plt.ioff()
-        plt.show()
+        if self.export_path and self.frames:
+            print(f"[✓] Saving {len(self.frames)} frames to {self.export_path}...")
+            self.frames[0].save(
+                self.export_path,
+                save_all=True,
+                append_images=self.frames[1:],
+                duration=int(self.update_interval * 1000),
+                loop=0,
+            )
+            print(f"[✓] Animated GIF successfully saved: {self.export_path}")
+
+        if not is_agg:
+            plt.ioff()
+            plt.show()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -531,7 +587,12 @@ def main():
     parser.add_argument("--max_steps", type=int, default=750, help="Max episode steps")
     parser.add_argument("--export_gif", type=str, default=None, help="Export frames to GIF path")
     parser.add_argument("--no_faults", action="store_true", help="Disable fault injection")
+    parser.add_argument("--headless", action="store_true", help="Run headlessly without GUI window (for export/servers)")
     args = parser.parse_args()
+
+    if args.headless:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
 
     from dsse_3d.env_creators import make_tracking_env_3d, make_coverage_env_3d
     from dsse_3d.policy_adapters import wrap_rllib_policy_for_3d, wrap_epymarl_policy_for_3d
