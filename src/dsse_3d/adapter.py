@@ -132,12 +132,10 @@ class AltitudeController:
 
         # Priority 3: Flying over Open Streets / Plazas (target_h == 0)
         if target_h == 0:
-            # Staggered swarm altitudes: D0 & D2 sweep at Z=1 for ground scan,
-            # D1 & D3 transit at Z=2 for wide FOV transit
-            preferred_street_z = 1 if (drone_idx % 2 == 0) else 2
-            if z > preferred_street_z:
+            # Over open streets/plazas, all drones maintain standard scan altitude Z=1
+            if z > VoxelGrid.Z_SCAN:
                 return -1
-            elif z < preferred_street_z:
+            elif z < VoxelGrid.Z_SCAN:
                 return +1
             return 0
 
