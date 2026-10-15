@@ -63,6 +63,18 @@ class AltitudeController:
           at the charging station.
     """
 
+    ACTION_DX_DY = {
+        0: (-1, 0),
+        1: (1, 0),
+        2: (0, -1),
+        3: (0, 1),
+        4: (-1, -1),
+        5: (1, -1),
+        6: (-1, 1),
+        7: (1, 1),
+        8: (0, 0),
+    }
+
     def __init__(self, voxel_grid: VoxelGrid, battery_critical_threshold: float = 0.20):
         self.voxel = voxel_grid
         self.battery_threshold = battery_critical_threshold
@@ -87,28 +99,48 @@ class AltitudeController:
             delta_z: -1 (descend), 0 (hold), or +1 (ascend).
         """
         z = self.voxel.get_altitude(drone_idx)
-        is_search = (action_2d == 8)
+        x, y, _ = self.voxel.get_position(drone_idx)
 
         # Priority 1: Landing & Charging at Station (0, 0)
-        # Stay landed at Z=0 until battery is recharged to >= 95%
         if at_station and battery_level < 0.95:
             if z > VoxelGrid.Z_GROUND:
                 return -1  # Descend to Z=0 landing pad
             return 0       # Stay landed on charging pad at Z=0
 
-        # Priority 2: SEARCH action — descend to scan altitude (Z=1)
-        if is_search:
-            if z > VoxelGrid.Z_SCAN:
+        # Launch from station after recharge
+        if at_station and z == VoxelGrid.Z_GROUND and battery_level >= 0.95:
+            return +1  # Takeoff to flight altitude
+
+        # Calculate intended target position
+        dx, dy = self.ACTION_DX_DY.get(action_2d, (0, 0))
+        target_x = max(0, min(self.voxel.grid_size - 1, x + dx))
+        target_y = max(0, min(self.voxel.grid_size - 1, y + dy))
+
+        # Check target obstacle height
+        target_h = self.voxel._obstacle_heights.get((target_x, target_y), 0)
+
+        # Priority 2: Obstacle Flyover Lookahead
+        # If moving into a building, climb to fly OVER it!
+        if target_h > 0:
+            if z <= target_h:
+                if target_h < self.voxel.z_max:
+                    return +1  # Ascend above the rooftop!
+                else:
+                    return 0   # Skyscraper reaching ceiling, cannot fly over
+            elif z > target_h + 1:
                 return -1
-            elif z < VoxelGrid.Z_SCAN:
+
+        # Priority 3: Flying over Open Streets / Plazas (target_h == 0)
+        if target_h == 0:
+            # Staggered swarm altitudes: D0 & D2 sweep at Z=1 for ground scan,
+            # D1 & D3 transit at Z=2 for wide FOV transit
+            preferred_street_z = 1 if (drone_idx % 2 == 0) else 2
+            if z > preferred_street_z:
+                return -1
+            elif z < preferred_street_z:
                 return +1
-            return 0  # Already at scan altitude
+            return 0
 
-        # Priority 3: Movement action — ascend to transit altitude if at scan/ground
-        if z <= VoxelGrid.Z_SCAN:
-            return +1  # Ascend for horizontal transit
-
-        # Priority 4: Maintain transit altitude
         return 0
 
     def resolve_3d_obstacle(self, drone_idx: int, new_x: int, new_y: int) -> int:

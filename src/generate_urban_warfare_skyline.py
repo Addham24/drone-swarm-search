@@ -1,19 +1,24 @@
 """
-Urban Warfare Environment Generator (25x25 and 50x50)
-=====================================================
-Generates realistic, asymmetric urban warfare (MOUT) obstacle environments
-for 2D and 3D drone swarm coverage benchmarks.
+City Grid Environment Generator (25x25 and 50x50)
+==================================================
+Generates realistic, aligned urban cityscapes with structured street networks,
+boulevards, cross avenues, and city blocks of varying building heights.
 
-Design Features:
-  - Spread-out, non-aligned layout simulating ruined compounds, barricades, and towers.
-  - Multi-tier height distribution:
-      Z=1: Low rubble, destroyed walls, blast barriers
-      Z=2: Mid-rise fortified compounds, depots, residential ruins
-      Z=3: High vantage towers, sniper perches, communication masts
-  - Central open town square plaza + peripheral courtyards.
-  - Guaranteed 100% BFS reachability from base station (0, 0).
-  - Clean base station perimeter [0:3, 0:3] (25x25) or [0:5, 0:5] (50x50).
-  - Open space for swarm coverage: ~80% - 83% free space.
+Urban Planning Architecture:
+  - Road Grid:
+      * Major Boulevards (3-4 cells wide) running through the center.
+      * Cross Avenues and perimeter streets running across the map.
+      * Central open plazas / civic squares.
+  - Aligned City Blocks:
+      * Clearly defined rectangular building blocks separated by streets.
+      * Mixed heights within blocks:
+          Z=1: Low-rise residential / commercial shops
+          Z=2: Mid-rise corporate / residential complexes
+          Z=3: High-rise towers & skyscrapers on major street corners
+  - Airspace & Maneuver Space:
+      * ~13% - 16% building density, leaving ~84% - 87% wide open streets and plazas.
+      * Base station [0:3, 0:3] (25x25) or [0:5, 0:5] (50x50) completely clear.
+      * 100% BFS reachability guaranteed across all road corridors.
 
 Outputs:
   - obstacle_skyline_25.npy
@@ -29,139 +34,113 @@ import numpy as np
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def generate_urban_warfare_25():
-    """Generate 25x25 Urban Warfare obstacle map with heights in {1, 2, 3}."""
+def generate_city_grid_25():
+    """
+    Generate 25x25 Aligned City Grid:
+      - Continuous road network: Rows 0-2, 6-7, 11-14, 18-19, 23-24.
+      - Continuous road network: Cols 0-2, 5-6, 11-14, 18-19, 23-24.
+      - 12 clearly aligned 2x3 city blocks with stratified heights.
+    """
     grid = np.zeros((25, 25), dtype=np.int32)
 
-    # 1. Northwest Quadrant
-    # L-shaped compound (Heights 1 and 2)
-    grid[4:7, 3:5] = 1
-    grid[4:5, 5:7] = 2
+    # 12 cleanly defined city blocks (each 2x3)
+    # NW Quadrant (Rows 3-5, 8-10; Cols 2-5, 7-10)
+    grid[3:5, 2:5] = 1   # Low residential
+    grid[8:10, 2:5] = 2  # Mid-rise block
+    grid[3:5, 7:10] = 2  # Commercial
+    grid[4:5, 9:10] = 3  # Corner tower
+    grid[8:10, 7:10] = 1 # Low depot
 
-    # Standalone sniper perch (Height 3)
-    grid[8:10, 5:7] = 3
+    # NE Quadrant (Rows 3-5, 8-10; Cols 15-18, 20-23)
+    grid[3:5, 15:18] = 2 # Mid-rise
+    grid[3:5, 17:18] = 3 # Tower
+    grid[8:10, 15:18] = 1 # Low shops
+    grid[3:5, 20:23] = 1 # Low residential
+    grid[8:10, 20:23] = 3 # High-rise tower
 
-    # 2. Southwest Quadrant
-    # Barricade / low wall (Height 1)
-    grid[14:17, 2:4] = 1
-    # Multi-level outpost (Heights 2 and 3)
-    grid[19:22, 3:6] = 2
-    grid[20:22, 5:7] = 3
-    # Corner guard post (Height 1)
-    grid[23:25, 2:4] = 1
+    # SW Quadrant (Rows 15-17, 20-22; Cols 2-5, 7-10)
+    grid[15:17, 2:5] = 2 # Mid-rise
+    grid[20:22, 2:5] = 1 # Low-rise
+    grid[15:17, 7:10] = 3 # Tower
+    grid[20:22, 7:10] = 2 # Mid-rise
 
-    # 3. North-Central Sector
-    # Commercial ruin (Heights 2 and 3)
-    grid[4:7, 10:13] = 2
-    grid[5:7, 13:15] = 3
+    # SE Quadrant (Rows 15-17, 20-22; Cols 15-18, 20-23)
+    grid[15:17, 15:18] = 3 # High-rise tower
+    grid[20:22, 15:18] = 2 # Mid-rise
+    grid[15:17, 20:23] = 2 # Commercial
+    grid[20:22, 20:23] = 1 # Low-rise
 
-    # Central Plaza: [10:15, 10:15] left open as a 5x5 town square!
-
-    # 4. South-Central Sector
-    # U-shaped market compound (Heights 1 and 2)
-    grid[18:21, 9:11] = 1
-    grid[20:22, 11:14] = 2
-    grid[18:21, 14:16] = 1
-    # Warehouse ruin (Height 1)
-    grid[23:25, 10:13] = 1
-
-    # 5. North-East Quadrant
-    # High-rise command tower (Height 3) & wing (Height 2)
-    grid[4:7, 18:20] = 3
-    grid[6:9, 20:23] = 2
-    # Staggered barrier (Height 1)
-    grid[2:4, 18:21] = 1
-
-    # 6. East-Central Sector
-    # Heavy fortification (Height 3)
-    grid[12:15, 18:21] = 3
-    # Small bunker (Height 1)
-    grid[11:13, 22:24] = 1
-
-    # 7. South-East Quadrant
-    # Staggered residential blocks (Heights 2 and 1)
-    grid[17:20, 18:21] = 2
-    grid[22:24, 18:20] = 1
-    grid[19:22, 22:24] = 2
-
-    # Base station protection
     assert np.all(grid[0:3, 0:3] == 0), "Base station area must be clear!"
-
     return grid
 
 
-def generate_urban_warfare_50():
-    """Generate 50x50 Urban Warfare obstacle map with heights in {1, 2, 3}."""
+def generate_city_grid_50():
+    """
+    Generate 50x50 Aligned City Grid:
+      - Central Grand Boulevard: X in [23:27] (4 cells wide)
+      - Central Grand Parkway: Y in [23:27] (4 cells wide)
+      - Perimeter Avenues: X in [0:3], [47:50], Y in [0:3], [47:50]
+      - 36 cleanly aligned 3x3 city blocks with stratified heights.
+    """
     grid = np.zeros((50, 50), dtype=np.int32)
 
-    # 1. Base station area [0:5, 0:5] strictly free
+    # Blocks in NW:
+    nw_blocks = [
+        ((4, 7), (4, 7), 1),
+        ((4, 7), (11, 14), 2),
+        ((4, 7), (18, 21), 3),
+        ((11, 14), (4, 7), 2),
+        ((11, 14), (11, 14), 1),
+        ((11, 14), (18, 21), 2),
+        ((18, 21), (4, 7), 3),
+        ((18, 21), (11, 14), 2),
+        ((18, 21), (18, 21), 1),
+    ]
 
-    # 2. Quadrant 1 (North-West)
-    grid[6:9, 5:8] = 1       # Rubble compound
-    grid[6:8, 8:10] = 2
-    grid[12:15, 4:7] = 3     # Sniper tower
-    grid[17:20, 2:5] = 1     # Low barricade
-    grid[15:18, 8:11] = 2    # Mid-rise depot
-    grid[7:10, 18:21] = 2    # Commercial block
-    grid[8:10, 21:23] = 3
-    grid[12:15, 16:19] = 1   # Low wall
-    grid[18:21, 14:17] = 2   # Residential ruin
+    # Blocks in NE:
+    ne_blocks = [
+        ((4, 7), (29, 32), 2),
+        ((4, 7), (36, 39), 1),
+        ((4, 7), (43, 46), 2),
+        ((11, 14), (29, 32), 3),
+        ((11, 14), (36, 39), 2),
+        ((11, 14), (43, 46), 1),
+        ((18, 21), (29, 32), 1),
+        ((18, 21), (36, 39), 3),
+        ((18, 21), (43, 46), 2),
+    ]
 
-    # 3. Quadrant 2 (North-East)
-    grid[4:7, 26:29] = 1
-    grid[5:8, 29:32] = 2
-    grid[3:6, 36:39] = 2
-    grid[4:6, 39:41] = 3     # North-east tower
-    grid[9:12, 42:45] = 1
-    grid[8:11, 27:30] = 3    # Vantage tower
-    grid[12:15, 31:34] = 2
-    grid[14:17, 38:42] = 1   # Long barrier
-    grid[18:21, 26:29] = 2
-    grid[17:20, 33:36] = 3   # High-rise ruin
-    grid[19:22, 44:47] = 2
+    # Blocks in SW:
+    sw_blocks = [
+        ((29, 32), (4, 7), 1),
+        ((29, 32), (11, 14), 3),
+        ((29, 32), (18, 21), 2),
+        ((36, 39), (4, 7), 2),
+        ((36, 39), (11, 14), 1),
+        ((36, 39), (18, 21), 3),
+        ((43, 46), (4, 7), 2),
+        ((43, 46), (11, 14), 2),
+        ((43, 46), (18, 21), 1),
+    ]
 
-    # 4. Central Sector & Cross Corridors
-    # Main Plaza at [22:28, 22:28] left completely open!
-    grid[22:25, 17:20] = 3   # West gate tower
-    grid[25:28, 18:21] = 2
-    grid[22:25, 30:33] = 3   # East gate tower
-    grid[25:28, 29:32] = 2
+    # Blocks in SE:
+    se_blocks = [
+        ((29, 32), (29, 32), 3),
+        ((29, 32), (36, 39), 2),
+        ((29, 32), (43, 46), 1),
+        ((36, 39), (29, 32), 2),
+        ((36, 39), (36, 39), 1),
+        ((36, 39), (43, 46), 3),
+        ((43, 46), (29, 32), 1),
+        ((43, 46), (36, 39), 2),
+        ((43, 46), (43, 46), 2),
+    ]
 
-    # 5. Quadrant 3 (South-West)
-    grid[29:32, 4:7] = 2
-    grid[31:34, 7:10] = 3    # Watchtower
-    grid[36:39, 3:6] = 1     # Rubble
-    grid[42:45, 5:8] = 2
-    grid[43:45, 8:11] = 1
-    grid[29:32, 13:16] = 1   # Bunker
-    grid[33:36, 17:20] = 2   # Mid block
-    grid[39:42, 14:17] = 3   # Heavy structure
-    grid[42:45, 18:21] = 1
-    grid[46:48, 12:15] = 1
+    all_blocks = nw_blocks + ne_blocks + sw_blocks + se_blocks
+    for (ys, ye), (xs, xe), h in all_blocks:
+        grid[ys:ye, xs:xe] = h
 
-    # 6. South-Central Sector
-    grid[32:35, 23:26] = 2
-    grid[34:37, 26:29] = 1
-    grid[40:43, 22:25] = 3   # South avenue tower
-    grid[41:44, 25:28] = 2
-    grid[46:49, 23:27] = 1   # South perimeter wall
-
-    # 7. Quadrant 4 (South-East)
-    grid[28:31, 35:38] = 1
-    grid[30:33, 38:41] = 2
-    grid[29:32, 43:46] = 3   # High-rise tower
-    grid[35:38, 30:33] = 2
-    grid[37:40, 34:37] = 3   # Industrial tower
-    grid[35:38, 42:45] = 1   # Low depot
-    grid[41:44, 32:35] = 1
-    grid[40:43, 38:41] = 2   # Residential block
-    grid[41:44, 44:47] = 2
-    grid[45:48, 35:38] = 1
-    grid[46:48, 40:43] = 3   # Corner outpost
-
-    # Base station protection
     assert np.all(grid[0:4, 0:4] == 0), "Base station area must be clear!"
-
     return grid
 
 
@@ -206,11 +185,11 @@ def generate_prob_matrix(grid):
 
 def main():
     print("=" * 65)
-    print("  GENERATING ASYMMETRIC URBAN WARFARE ENVIRONMENTS")
+    print("  GENERATING ALIGNED URBAN CITY GRID ENVIRONMENTS")
     print("=" * 65)
 
     # 1. 25x25 Map
-    grid_25 = generate_urban_warfare_25()
+    grid_25 = generate_city_grid_25()
     ok_25, unreach_25 = validate_bfs_reachability(grid_25)
     assert ok_25, f"25x25 map has {unreach_25} unreachable cells!"
 
@@ -223,14 +202,14 @@ def main():
     np.save(path_mask_25, grid_25)
     np.save(path_prob_25, prob_25)
 
-    print(f"\n[✓] 25x25 Urban Warfare Map Generated:")
+    print(f"\n[✓] 25x25 Aligned City Grid Generated:")
     print(f"    File: {path_mask_25}")
-    print(f"    Obstacle Cells: {n_obs_25} ({n_obs_25/625*100:.1f}%) | Free Cells: {n_free_25} ({n_free_25/625*100:.1f}%)")
+    print(f"    Building Cells: {n_obs_25} ({n_obs_25/625*100:.1f}%) | Free Road Cells: {n_free_25} ({n_free_25/625*100:.1f}%)")
     print(f"    Heights: Z=1: {(grid_25==1).sum()}, Z=2: {(grid_25==2).sum()}, Z=3: {(grid_25==3).sum()}")
     print(f"    BFS Reachability: 100.0% (0 unreachable)")
 
     # 2. 50x50 Map
-    grid_50 = generate_urban_warfare_50()
+    grid_50 = generate_city_grid_50()
     ok_50, unreach_50 = validate_bfs_reachability(grid_50)
     assert ok_50, f"50x50 map has {unreach_50} unreachable cells!"
 
@@ -243,12 +222,12 @@ def main():
     np.save(path_mask_50, grid_50)
     np.save(path_prob_50, prob_50)
 
-    print(f"\n[✓] 50x50 Urban Warfare Map Generated:")
+    print(f"\n[✓] 50x50 Aligned City Grid Generated:")
     print(f"    File: {path_mask_50}")
-    print(f"    Obstacle Cells: {n_obs_50} ({n_obs_50/2500*100:.1f}%) | Free Cells: {n_free_50} ({n_free_50/2500*100:.1f}%)")
+    print(f"    Building Cells: {n_obs_50} ({n_obs_50/2500*100:.1f}%) | Free Road Cells: {n_free_50} ({n_free_50/2500*100:.1f}%)")
     print(f"    Heights: Z=1: {(grid_50==1).sum()}, Z=2: {(grid_50==2).sum()}, Z=3: {(grid_50==3).sum()}")
     print(f"    BFS Reachability: 100.0% (0 unreachable)")
-    print("\n[✓] Successfully generated and verified all urban warfare obstacle environments.")
+    print("\n[✓] Successfully generated and verified all aligned city obstacle environments.")
 
 
 if __name__ == "__main__":
