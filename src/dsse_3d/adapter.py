@@ -132,10 +132,10 @@ class AltitudeController:
 
         # Priority 3: Flying over Open Streets / Plazas (target_h == 0)
         if target_h == 0:
-            # Over open streets/plazas, all drones maintain standard scan altitude Z=1
-            if z > VoxelGrid.Z_SCAN:
+            # Over open streets/plazas, all drones maintain standard cruising altitude Z=2
+            if z > VoxelGrid.Z_TRANSIT_MIN:
                 return -1
-            elif z < VoxelGrid.Z_SCAN:
+            elif z < VoxelGrid.Z_TRANSIT_MIN:
                 return +1
             return 0
 
