@@ -76,71 +76,35 @@ def generate_city_grid_25():
 
 def generate_city_grid_50():
     """
-    Generate 50x50 Aligned City Grid:
-      - Central Grand Boulevard: X in [23:27] (4 cells wide)
-      - Central Grand Parkway: Y in [23:27] (4 cells wide)
-      - Perimeter Avenues: X in [0:3], [47:50], Y in [0:3], [47:50]
-      - 36 cleanly aligned 3x3 city blocks with stratified heights.
+    Generate 50x50 Balanced City Grid:
+      - Continuous 3-cell wide street network across the entire grid:
+        Streets at rows/cols [0:3], [6:9], [12:15], [18:21], [24:27], [30:33], [36:39], [42:45], [48:50].
+      - 8x8 block layout across rows/cols [3:6], [9:12], [15:18], [21:24], [27:30], [33:36], [39:42], [45:48].
+      - Eliminates the central void/chasm: buildings, avenues, and plazas are uniformly distributed.
+      - Stratified heights: 1 (low-rise), 2 (mid-rise), 3 (downtown towers).
+      - Plazas & public squares (height 0) interspersed rhythmically throughout neighborhoods.
     """
+    row_blocks = [(3, 6), (9, 12), (15, 18), (21, 24), (27, 30), (33, 36), (39, 42), (45, 48)]
+    col_blocks = [(3, 6), (9, 12), (15, 18), (21, 24), (27, 30), (33, 36), (39, 42), (45, 48)]
+
+    # 8x8 block matrix: 0=civic plaza/park, 1=low-rise, 2=mid-rise, 3=downtown high-rise
+    height_matrix = np.array([
+        [ 1, 2, 1, 0, 2, 1, 2, 1 ], # Row 0
+        [ 2, 1, 0, 2, 1, 2, 0, 2 ], # Row 1
+        [ 1, 0, 2, 3, 2, 0, 2, 1 ], # Row 2
+        [ 0, 2, 3, 3, 3, 2, 1, 0 ], # Row 3
+        [ 2, 1, 2, 3, 3, 3, 0, 2 ], # Row 4
+        [ 1, 2, 0, 2, 3, 2, 2, 1 ], # Row 5
+        [ 2, 0, 2, 1, 2, 0, 1, 2 ], # Row 6
+        [ 1, 2, 1, 0, 1, 2, 1, 0 ], # Row 7
+    ])
+
     grid = np.zeros((50, 50), dtype=np.int32)
+    for r_idx, (r_start, r_end) in enumerate(row_blocks):
+        for c_idx, (c_start, c_end) in enumerate(col_blocks):
+            grid[r_start:r_end, c_start:c_end] = height_matrix[r_idx, c_idx]
 
-    # Blocks in NW:
-    nw_blocks = [
-        ((4, 7), (4, 7), 1),
-        ((4, 7), (11, 14), 2),
-        ((4, 7), (18, 21), 3),
-        ((11, 14), (4, 7), 2),
-        ((11, 14), (11, 14), 1),
-        ((11, 14), (18, 21), 2),
-        ((18, 21), (4, 7), 3),
-        ((18, 21), (11, 14), 2),
-        ((18, 21), (18, 21), 1),
-    ]
-
-    # Blocks in NE:
-    ne_blocks = [
-        ((4, 7), (29, 32), 2),
-        ((4, 7), (36, 39), 1),
-        ((4, 7), (43, 46), 2),
-        ((11, 14), (29, 32), 3),
-        ((11, 14), (36, 39), 2),
-        ((11, 14), (43, 46), 1),
-        ((18, 21), (29, 32), 1),
-        ((18, 21), (36, 39), 3),
-        ((18, 21), (43, 46), 2),
-    ]
-
-    # Blocks in SW:
-    sw_blocks = [
-        ((29, 32), (4, 7), 1),
-        ((29, 32), (11, 14), 3),
-        ((29, 32), (18, 21), 2),
-        ((36, 39), (4, 7), 2),
-        ((36, 39), (11, 14), 1),
-        ((36, 39), (18, 21), 3),
-        ((43, 46), (4, 7), 2),
-        ((43, 46), (11, 14), 2),
-        ((43, 46), (18, 21), 1),
-    ]
-
-    # Blocks in SE:
-    se_blocks = [
-        ((29, 32), (29, 32), 3),
-        ((29, 32), (36, 39), 2),
-        ((29, 32), (43, 46), 1),
-        ((36, 39), (29, 32), 2),
-        ((36, 39), (36, 39), 1),
-        ((36, 39), (43, 46), 3),
-        ((43, 46), (29, 32), 1),
-        ((43, 46), (36, 39), 2),
-        ((43, 46), (43, 46), 2),
-    ]
-
-    all_blocks = nw_blocks + ne_blocks + sw_blocks + se_blocks
-    for (ys, ye), (xs, xe), h in all_blocks:
-        grid[ys:ye, xs:xe] = h
-
-    assert np.all(grid[0:4, 0:4] == 0), "Base station area must be clear!"
+    assert np.all(grid[0:3, 0:3] == 0), "Base station area must be clear!"
     return grid
 
 

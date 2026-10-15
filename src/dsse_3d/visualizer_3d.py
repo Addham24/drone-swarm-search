@@ -636,6 +636,14 @@ def main():
 
     fault_prob = 0.0 if args.no_faults else 0.0005
 
+    timestep_limit = 1500 if args.grid_size == 50 else 750
+    max_battery = 250 if args.grid_size == 50 else 125
+    prob_matrix_path = None
+    if args.map_type == "obstacles":
+        prob_path = os.path.join(SRC_DIR, f"obstacle_prob_matrix_{args.grid_size}.npy")
+        if os.path.exists(prob_path):
+            prob_matrix_path = prob_path
+
     # Create 3D environment
     if args.task == "tracking":
         env = make_tracking_env_3d(
@@ -647,6 +655,9 @@ def main():
     else:
         env = make_coverage_env_3d(
             grid_size=args.grid_size,
+            timestep_limit=timestep_limit,
+            max_battery=max_battery,
+            prob_matrix_path=prob_matrix_path,
             fault_prob=fault_prob,
             is_self_heal="selfheal" in args.model,
             obstacle_mask=obstacle_mask,
@@ -662,8 +673,9 @@ def main():
         policy_fn = _load_trained_model(args.model, args.task, args.grid_size)
 
     # Run visualizer
+    run_steps = 1500 if (args.grid_size == 50 and args.max_steps == 750) else args.max_steps
     viz = DSSE3DVisualizer(env, task=args.task)
-    viz.run(policy_fn, n_steps=args.max_steps, export_path=args.export_gif)
+    viz.run(policy_fn, n_steps=run_steps, export_path=args.export_gif)
 
 
 def _load_trained_model(model_name, task, grid_size):
