@@ -140,6 +140,21 @@ def make_coverage_env_3d(
     Returns:
         A DSSE3DAdapter-wrapped coverage environment.
     """
+    # OpenDrift shim: pre-computed matrices do not require the simulation engine
+    try:
+        import opendrift
+    except ImportError:
+        from types import ModuleType
+        dummy_od = ModuleType("opendrift")
+        dummy_models = ModuleType("opendrift.models")
+        dummy_ocean = ModuleType("opendrift.models.oceandrift")
+        dummy_ocean.OceanDrift = object
+        dummy_models.oceandrift = dummy_ocean
+        dummy_od.models = dummy_models
+        sys.modules["opendrift"] = dummy_od
+        sys.modules["opendrift.models"] = dummy_models
+        sys.modules["opendrift.models.oceandrift"] = dummy_ocean
+
     from DSSE import CoverageDroneSwarmSearch
     from DSSE.environment.wrappers import RetainDronePosWrapper, AllPositionsWrapper
     from battery_station_wrapper import BatteryStationWrapper
