@@ -307,11 +307,17 @@ def evaluate_coverage_3d(
             "obstacle_collisions_3d": metrics_3d["obstacle_collisions_3d"],
         })
 
+    f_cov = max(0.001, float(np.mean(coverage_list)) / 100.0)
+    f_surv = max(0.001, float(np.mean(survival_list)) / 100.0)
+    f_batt = max(0.001, float(np.mean(battery_list)) / 100.0)
+    smei = (f_cov**0.40 * f_surv**0.30 * f_batt**0.30) * 100.0
+
     return {
         "coverage_rate": float(np.mean(coverage_list)),
         "attrition_rate": float(np.mean(attrition_list)),
         "survival_rate": float(np.mean(survival_list)),
         "avg_battery": float(np.mean(battery_list)),
+        "smei": float(smei),
         "mean_reward": float(np.mean(reward_list)),
         "mean_altitude": float(np.mean(mean_altitude_list)),
         "mean_altitude_changes": float(np.mean(altitude_changes_list)),
@@ -401,7 +407,7 @@ def generate_3d_coverage_dashboard(df_results, output_dir, title_prefix="DSSE-3D
         ("Avg Battery (%)", "#ff7f0e", "4. Fleet Battery (%)", 0, 115, "%"),
         ("Mean Reward", "#1f77b4", "5. Cumulative Mission Return", None, None, ""),
         ("Mean Altitude", "#17becf", "6. Mean Drone Altitude (Z)", 0, 6, ""),
-        ("Alt Changes", "#e377c2", "7. Altitude Transitions/ep", None, None, ""),
+        ("SMEI (%)", "#e377c2", "7. SMEI (%)", 0, 115, "%"),
         ("3D Collisions", "#bcbd22", "8. 3D Obstacle + MidAir Collisions", None, None, ""),
     ]
 
@@ -559,6 +565,7 @@ def main():
                 "Avg Battery (%)": round(res["avg_battery"], 2),
                 "Mean Reward": round(res["mean_reward"], 2),
                 "Mean Altitude": round(res["mean_altitude"], 2),
+                "SMEI (%)": round(res["smei"], 2),
                 "Alt Changes": round(res["mean_altitude_changes"], 2),
                 "3D Collisions": round(res["mean_midair_collisions"] + res["mean_obstacle_collisions_3d"], 2),
             })

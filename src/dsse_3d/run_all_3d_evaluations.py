@@ -562,7 +562,7 @@ def generate_coverage_3d_dashboard(df, output_dir, title):
         ("Survival Rate (%)",  "#9467bd", "3. Swarm Survival Rate (%)",          0, 115, "%"),
         ("Avg Battery (%)",    "#ff7f0e", "4. Fleet Battery (%)",                0, 115, "%"),
         ("Mean Reward",        "#1f77b4", "5. Cumulative Mission Return",        None, None, ""),
-        ("Alt Changes",        "#e377c2", "6. Altitude Transitions/ep",          None, None, ""),
+        ("SMEI (%)",           "#e377c2", "6. SMEI (%)",                         0, 115, "%"),
     ]
 
     for idx, (col, color, panel_title, ylim_lo, ylim_hi, suffix) in enumerate(panels):
@@ -684,6 +684,7 @@ def run_task_evaluations(task, n_seeds, loaded_policies, grid_size_filter=None):
                         "Attrition Rate": summary["attrition_rate"],
                         "Survival Rate (%)": summary["survival_rate"],
                         "Avg Battery (%)": summary["avg_battery"],
+                        "SMEI (%)": summary["smei"],
                         "Mean Charging Steps": summary["mean_charging_steps"],
                         "Mean Reward": summary["mean_reward"],
                         "Mean Shaped Return": summary["mean_shaped_return"],
