@@ -153,6 +153,7 @@ def recompute_summary_from_raw(df_raw, task, dim, env_cfg):
                     "Attrition Rate": round(attr_mean, 2),
                     "Survival Rate (%)": round(surv_mean, 2),
                     "Avg Battery (%)": round(batt_mean, 2),
+                    "SMEI (%)": round(smei_mean, 2),
                     "Mean Charging Steps": round(chg_mean, 2),
                     "Mean Reward": round(ret_mean, 2),
                     "Mean Shaped Return": round(shaped_mean, 2),

@@ -119,7 +119,7 @@ ENV_CONFIGS = [
         "max_battery": 125,
         "has_obstacles": True,
         "target_start": (12, 12),
-        "free_cells": 609,
+        "free_cells": 529,
         "label": "25×25 Obstacles",
     },
     {
@@ -139,7 +139,7 @@ ENV_CONFIGS = [
         "max_battery": 250,
         "has_obstacles": True,
         "target_start": (26, 26),
-        "free_cells": 2404,
+        "free_cells": 2041,
         "label": "50×50 Obstacles",
     },
 ]
