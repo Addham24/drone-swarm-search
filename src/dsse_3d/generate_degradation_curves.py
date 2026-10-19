@@ -97,63 +97,76 @@ LINESTYLE_MAP = {
 }
 
 
+def _plot_task_metric(task, metric_col, metric_label, filename_suffix):
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle(f"DSSE-3D {task} — Fault Severity Degradation Curves ({metric_label})", fontsize=16, fontweight="bold", y=0.98)
+    
+    for env_idx, env in enumerate(ENVS):
+        ax = axes[env_idx // 2, env_idx % 2]
+        model_data = {}
+        
+        for fault_tag, fault_prob in FAULT_LEVELS:
+            csv_path = os.path.join(BASE_DIR, task, env, fault_tag, f"{task.lower()}_3d_summary.csv")
+            if os.path.exists(csv_path):
+                df = pd.read_csv(csv_path)
+                for _, row in df.iterrows():
+                    m = row["Model"]
+                    val = row[metric_col] if metric_col in row else 0.0
+                    if m not in model_data:
+                        model_data[m] = []
+                    model_data[m].append((fault_prob, val))
+        
+        sorted_models = [m for m in MODEL_ORDER if m in model_data] + [m for m in model_data if m not in MODEL_ORDER]
+        
+        for m_idx, m in enumerate(sorted_models):
+            points = model_data[m]
+            if points:
+                points.sort(key=lambda p: p[0])
+                x_vals = [p[0] * 10000 for p in points]
+                y_vals = [p[1] for p in points]
+                
+                is_rspo = "RSPO" in m
+                lw = 2.2 if is_rspo else 1.4
+                ls = LINESTYLE_MAP.get(m, "-")
+                marker = MARKER_MAP.get(m, "o")
+                color = COLOR_MAP.get(m, None)
+                
+                ax.plot(
+                    x_vals, y_vals, label=m, color=color, linestyle=ls,
+                    linewidth=lw, alpha=0.9, marker=marker, markersize=5,
+                    markeredgecolor="white", markeredgewidth=0.5
+                )
+        
+        ax.set_title(f"Environment: {env.replace('_', ' ')}", fontsize=12, fontweight="bold")
+        ax.set_xlabel("Fault Probability (×10⁻⁴ per step)", fontsize=10)
+        ax.set_ylabel(metric_label, fontsize=10)
+        ax.set_xticks([0.0, 2.5, 5.0, 7.5, 10.0])
+        ax.grid(True, linestyle="--", alpha=0.5)
+        
+        if env_idx == 0:
+            ax.legend(fontsize=7.5, loc="upper right", ncol=2, framealpha=0.9)
+            
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    save_path = os.path.join(OUTPUT_DIR, f"{task.lower()}_{filename_suffix}.png")
+    plt.savefig(save_path, dpi=300)
+    save_path_3d = os.path.join(OUTPUT_DIR, f"{task.lower()}_3d_{filename_suffix}.png")
+    plt.savefig(save_path_3d, dpi=300)
+    plt.close()
+    print(f"[✓] Degradation plot saved to: {save_path} and {save_path_3d}")
+
+
 def generate_degradation_plots():
     for task in TASKS:
+        task_dir = os.path.join(BASE_DIR, task)
+        if not os.path.exists(task_dir):
+            continue
         primary_metric = "Coverage Rate (%)" if task == "Coverage" else "Target Found Rate (%)"
-        
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle(f"DSSE-3D {task} — Fault Severity Degradation Curves", fontsize=16, fontweight="bold", y=0.98)
-        
-        for env_idx, env in enumerate(ENVS):
-            ax = axes[env_idx // 2, env_idx % 2]
-            model_data = {}
-            
-            for fault_tag, fault_prob in FAULT_LEVELS:
-                csv_path = os.path.join(BASE_DIR, task, env, fault_tag, f"{task.lower()}_3d_summary.csv")
-                if os.path.exists(csv_path):
-                    df = pd.read_csv(csv_path)
-                    for _, row in df.iterrows():
-                        m = row["Model"]
-                        val = row[primary_metric] if primary_metric in row else 0.0
-                        if m not in model_data:
-                            model_data[m] = []
-                        model_data[m].append((fault_prob, val))
-            
-            sorted_models = [m for m in MODEL_ORDER if m in model_data] + [m for m in model_data if m not in MODEL_ORDER]
-            
-            for m_idx, m in enumerate(sorted_models):
-                points = model_data[m]
-                if points:
-                    points.sort(key=lambda p: p[0])
-                    x_vals = [p[0] * 10000 for p in points]
-                    y_vals = [p[1] for p in points]
-                    
-                    is_rspo = "RSPO" in m
-                    lw = 2.2 if is_rspo else 1.4
-                    ls = LINESTYLE_MAP.get(m, "-")
-                    marker = MARKER_MAP.get(m, "o")
-                    color = COLOR_MAP.get(m, None)
-                    
-                    ax.plot(
-                        x_vals, y_vals, label=m, color=color, linestyle=ls,
-                        linewidth=lw, alpha=0.9, marker=marker, markersize=5,
-                        markeredgecolor="white", markeredgewidth=0.5
-                    )
-            
-            ax.set_title(f"Environment: {env.replace('_', ' ')}", fontsize=12, fontweight="bold")
-            ax.set_xlabel("Fault Probability (×10⁻⁴ per step)", fontsize=10)
-            ax.set_ylabel(primary_metric, fontsize=10)
-            ax.set_xticks([0.0, 2.5, 5.0, 7.5, 10.0])
-            ax.grid(True, linestyle="--", alpha=0.5)
-            
-            if env_idx == 0:
-                ax.legend(fontsize=7.5, loc="upper right", ncol=2, framealpha=0.9)
-                
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        save_path = os.path.join(OUTPUT_DIR, f"{task.lower()}_fault_degradation_curves.png")
-        plt.savefig(save_path, dpi=300)
-        plt.close()
-        print(f"[✓] Degradation plot saved to: {save_path}")
+        metric_label = "Coverage Rate (%)" if task == "Coverage" else "Target Intercept Rate (%)"
+        _plot_task_metric(task, primary_metric, metric_label, "fault_degradation_curves")
+
+        # Also generate dedicated SMEI degradation curves for coverage
+        if task == "Coverage":
+            _plot_task_metric(task, "SMEI (%)", "SMEI (%)", "smei_degradation_curves")
 
 
 if __name__ == "__main__":
