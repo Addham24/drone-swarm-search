@@ -1,0 +1,21 @@
+# DSSE Coverage Drone Swarm Environment Config for EPyMARL
+env: "dsse"
+
+env_args:
+  map_name: "dsse_coverage"
+  # Environment parameters
+  n_agents: 4
+  grid_size: 25
+  timestep_limit: 750
+  # Battery parameters
+  max_battery: 125
+  depletion_rate: 1
+  charge_rate: 15
+  fault_prob: 0.0005
+  # Reward mixing (VDN-style selective mixing)
+  mixing_alpha: 0.5
+  # Self-healing compensation
+  compensation_bonus: 2.5
+  compensation_penalty: -0.5
+  compensation_horizon: 100
+  seed: 1
