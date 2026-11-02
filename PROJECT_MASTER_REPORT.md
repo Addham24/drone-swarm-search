@@ -250,12 +250,12 @@ The benchmark audits 5 distinct operational fault regimes:
 4. **`Fault_0.00075` ($p = 0.00075$):** High stress. Swarm experiences $\sim 2.25$ cumulative faults per episode.
 5. **`Fault_0.001` ($p = 0.0010$):** Hostile operating regime. Swarm experiences $\sim 3.0$ cumulative faults per episode ($75\%$ of fleet compromised).
 
-### 4.2 Physical Consequences of Motor Failure
-When agent $i$ experiences motor failure ($f_i = 1$):
-1. **Thrust & Velocity Degradation:** Maximum horizontal displacement probability drops by $40\%$.
-2. **Double Power Drain:** Discharge rate doubles to $-2.0$ units/step.
-3. **Kinematic Drift:** $15\%$ probability per step of executing an uncommanded orthogonal drift step.
-4. **Telemetry Flag:** $f_i = 1$ is broadcast into the shared 22-dim telemetry stream.
+### 4.2 Physical Consequences of Motor Failure (Catastrophic Attrition Model)
+When an agent $i$ experiences motor failure triggered by the Poisson process (`BatteryStationWrapper.py:L171`):
+1. **Immediate Fleet Attrition:** The drone is permanently disabled: `battery[i] = 0` and `alive[i] = False`. It ceases all flight and scanning capabilities for the remainder of the episode.
+2. **Crash Site Broadcast:** Its exact spatial coordinates $(y_i, x_i)$ at the moment of failure are permanently recorded into `crash_coords[i]` and broadcast to all surviving teammates.
+3. **Telemetry Observation Masking:** In the 22-dimensional telemetry stream, the disabled drone's position coordinates are masked to `[-1.0, -1.0]`, its battery is clamped to `0.0`, and its normalized crash location $(c_y / N, c_x / N)$ is populated into the telemetry vector.
+4. **Fair Credit Assignment (Zero Fault Penalty):** Unlike preventable battery depletion deaths (which incur a $-50.0$ death penalty), unpreventable random hardware faults incur exactly **$0.0$ reward penalty** (`rewards[agent] = 0.0`), preventing policy gradient corruption from stochastic hardware defects.
 
 ---
 
@@ -319,9 +319,9 @@ To guarantee visual distinction without ambiguous hues:
 [Observation Stream 1: 25×25 Probability Matrix]
   │ (shape: [B, 1, 25, 25])
   ▼
-Conv2D (1 → 16, k=5, s=2, p=2) ──► Tanh
+Conv2D (1 → 16, k=3, s=1) ──► Tanh ──► MaxPool2D(2) ──► [B, 16, 11, 11]
   ▼
-Conv2D (16 → 32, k=3, s=2, p=1) ──► Tanh ──► [B, 32, 5, 5]
+Conv2D (16 → 32, k=2, s=1) ──► Tanh ──► MaxPool2D(2) ──► [B, 32, 5, 5]
   ▼ (optional CSSA Attention modulated by crash coordinates)
 Flatten (32 × 5 × 5 = 800)
   ▼
