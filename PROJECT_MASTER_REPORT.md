@@ -452,8 +452,9 @@ To evaluate $25 \times 25$-trained policies on $50 \times 50$ topologies ($4\tim
 Lifts 2D policies into 3D voxel space:
 - 2D policy emits horizontal movement action $a_{2D} \in \{0, \dots, 8\}$.
 - `AltitudeController` evaluates local obstacle heights and battery level to emit $\Delta z \in \{-1, 0, +1\}$.
-- Augmented observation vector appends normalized altitudes:
+- **Augmented 3D State Tracking:** The environment wrapper appends 5 vertical context scalars (4 normalized drone altitudes $[z_1, z_2, z_3, z_4]/z_{\max}$ + normalized sensor FOV radius) for logging and 3D simulation:
   $$\mathbf{o}_{3D} = \big[ \mathbf{o}_{2D} \parallel [z_1, z_2, z_3, z_4] / z_{\max} \parallel \text{FOV}_{\text{norm}} \big] \in \mathbb{R}^{27}$$
+- **Zero-Shot Policy Input Adaptation (`strip_3d_obs`):** Pre-trained 2D policies strictly require 22 input features. The policy wrapper ([`policy_adapters.py:L35`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/dsse_3d/policy_adapters.py#L35)) invokes `strip_3d_obs()`, stripping the 5 trailing altitude dimensions (`positions[:-5]`) immediately before feeding observations to the policy network. The 2D policy therefore sees its native 22-dim spatial features without retraining, while the rule-based `AltitudeController` autonomously dictates vertical climb/descent ($\Delta z$).
 
 ---
 
