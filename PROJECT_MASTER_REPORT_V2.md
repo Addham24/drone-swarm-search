@@ -4,7 +4,7 @@
 **Project:** Autonomous Decentralized Multi-Agent Reinforcement Learning for Drone Swarms  
 **Target Environments:** DSSE (2D Planar) & DSSE-3D (Volumetric Voxel Grids)  
 **Primary Novelty:** RSPO (Resilient Swarm Policy Optimization) with Self-Healing Architectures  
-**Comparative Scope:** 12 MARL Models (6 Families × 2 Variants), 4 Map Topologies, 5 Fault Regimes, 100 Seeds per Scenario (8,000 Total Evaluated Episodes)
+**Comparative Scope:** 12 MARL Models (6 Families × 2 Variants), 4 Map Topologies, 5 Fault Regimes, 100 Seeds per Scenario (96,000 Total Evaluated Episodes: 12 models × 80 scenarios × 100 seeds)
 
 ---
 
@@ -156,9 +156,9 @@ The benchmark establishes 4 standardized topologies across both 2D and 3D:
 
 In `DSSE-3D`, altitude layers $z \in \{0, 1, 2, 3, 4, 5\}$ introduce vertical reasoning:
 - **$z = 0$ (Ground Level):** Location of charging pads and surface targets. Drone landing occurs here.
-- **$z = 1$ (Scanning Layer):** Precise search altitude. Only search actions executed at $z = 1$ uncover target probability cells.
-- **$z \in [2, 4]$ (Transit Band):** Cruising altitudes for obstacle flyovers and high-speed transit across street canyons.
-- **$z = 5$ (Ceiling):** Airspace limit.
+- **$z = 1$ (Scanning Layer):** Precise low-altitude search layer ($1\times 1$ FOV footprint directly beneath the drone).
+- **$z \in [2, 4]$ (Transit Band):** Cruising altitudes for obstacle flyovers. Flying at higher altitudes expands the ground FOV footprint ($3\times 3$ to $5\times 5$), clearing wider ground swaths per step as modeled in `DSSE3DAdapter`.
+- **$z = 5$ (Ceiling):** Airspace limit ($7\times 7$ footprint).
 
 #### Altitude vs. Field of View (FOV) Sensor Footprint:
 Flying higher widens the sensor's situational awareness footprint but reduces measurement fidelity and costs more energy:
@@ -228,13 +228,13 @@ To deploy 2D-trained MARL policies in 3D volumetric space with **zero retraining
 
 - **Battery Capacity:** $B_{\max} = 125$ steps ($25 \times 25$ grids) and $B_{\max} = 250$ steps ($50 \times 50$ grids).
 - **Discharge Rates:**
-  - Base hover and horizontal movement: $-1.0$ unit per step.
-  - In-flight vertical climb ($\Delta z = +1$): $+50\%$ energetic penalty ($-1.5$ units per step).
-  - Actuator fault state ($f_i = 1$): $+100\%$ discharge penalty ($-2.0$ units per step) due to motor resistance.
+  - Base hover, search, and horizontal movement: $-1.0$ unit per step.
+  - In-flight vertical climb ($\Delta z = +1$ in 3D): managed via `DSSE3DAdapter` transition cost.
+  - Actuator fault state: Immediate catastrophic failure (battery clamped to $0$, drone permanently immobilized; no intermediate degraded cruising).
 - **Rapid Recharging Pad:**
   - Situated at origin $(0, 0)$ on ground layer $z = 0$.
-  - Recharging rate: $+15.0$ battery units per step.
-- **Depletion Crash:** If $b_i \le 0$, the drone crashes. It is permanently immobilized, zeroing its future reward and issuing a catastrophic $-100.0$ penalty.
+  - Recharging rate: $+15.0$ battery units per step up to $B_{\max}$.
+- **Depletion Crash:** If $b_i \le 0$, the drone crashes. It is permanently immobilized, zeroing future contributions and incurring a terminal $-50.0$ penalty in Coverage mode (incurring $0.0$ penalty for unpreventable Poisson hardware faults).
 
 ---
 
@@ -244,12 +244,14 @@ To deploy 2D-trained MARL policies in 3D volumetric space with **zero retraining
 Hardware faults represent independent Poisson arrival processes applied per-agent per-step:
 $$P(\text{Fault Event at step } t) = 1 - e^{-p_{\text{fault}}}$$
 
-The benchmark audits 5 distinct operational fault regimes:
-1. **`No_Faults_0.0` ($p = 0.0$):** Ideal nominal hardware baseline.
-2. **`Fault_0.00025` ($p = 0.00025$):** Low degradation. Swarm experiences $\sim 0.75$ cumulative faults per episode.
-3. **`Active_Faults_0.0005` ($p = 0.0005$):** Standard benchmark condition. Swarm experiences $\sim 1.50$ cumulative faults per episode.
-4. **`Fault_0.00075` ($p = 0.00075$):** High stress. Swarm experiences $\sim 2.25$ cumulative faults per episode.
-5. **`Fault_0.001` ($p = 0.0010$):** Hostile operating regime. Swarm experiences $\sim 3.0$ cumulative faults per episode ($75\%$ of fleet compromised).
+The benchmark audits 5 distinct operational fault regimes (fault counts scale with episode horizon $T$):
+1. **`No_Faults_0.0` ($p = 0.0$):** Ideal nominal hardware baseline (0 faults).
+2. **`Fault_0.00025` ($p = 0.00025$):** Low degradation. Swarm experiences $\sim 0.75$ cumulative faults per episode on $25\times 25$ ($T=750$), scaling to $\sim 1.50$ faults on $50\times 50$ ($T=1,500$).
+3. **`Active_Faults_0.0005` ($p = 0.0005$):** Standard benchmark condition. Swarm experiences $\sim 1.50$ cumulative faults on $25\times 25$, scaling to $\sim 3.0$ faults on $50\times 50$.
+4. **`Fault_0.00075` ($p = 0.00075$):** High stress. Swarm experiences $\sim 2.25$ cumulative faults on $25\times 25$, scaling to $\sim 4.5$ faults on $50\times 50$.
+5. **`Fault_0.001` ($p = 0.0010$):** Hostile operating regime. Swarm experiences $\sim 3.0$ cumulative faults on $25\times 25$ ($75\%$ fleet attrition), scaling to $\sim 6.0$ cumulative faults across extended $50\times 50$ operations.
+
+*(Note: Because $50\times 50$ topologies double the operational horizon from $T=750$ to $T=1,500$, the cumulative Poisson failure expectation per episode strictly doubles across all fault probabilities).*
 
 ### 4.2 Physical Consequences of Motor Failure (Catastrophic Attrition Model)
 When an agent $i$ experiences motor failure triggered by the Poisson process (`BatteryStationWrapper.py:L171`):
@@ -509,9 +511,9 @@ A central scientific question of this investigation is whether the **Self-Healin
    In Self-Healing, `GlobalRewardWrapper` splits returns ($50\%$ team average $+ 50\%$ individual) to enforce cooperative spatial division. In Vanilla, this wrapper is omitted; each agent receives $100\%$ selfish individual rewards ($R_i = r_i$).
 3. **Adversity Parity (Hardware Fault Injection):**
    Random hardware failures ($p = 0.0005$ per step per drone) remain **strictly enabled** in Vanilla during both training and evaluation (`# VANILLA: Fault injection ON (same adversity), but NO teammate compensation`). This guarantees that Vanilla baselines are subjected to the exact same physical stress and peer dropouts, isolating the true marginal utility of the self-healing rewards and neural mechanisms.
-4. **Neural Architecture Ablation:**
-   - In RSPO Vanilla: Fleet Health Embedding (FHE) is disabled; Crash-Sector Spatial Attention (CSSA) is bypassed; the Dual-Objective Value Decomposition (DOVD) critic is collapsed into a single value head ($V(s)$); and the Resilience-Adaptive Clipping (RAC) gate is replaced by standard fixed PPO clipping ($\epsilon = 0.20$).
-   - In RSPO Self-Healing: All 4 self-healing sub-networks (FHE, CSSA, DOVD, RAC) operate in concert with the self-healing environment wrappers.
+4. **Environmental vs. Architectural Ablation Structure:**
+   - **For Baseline Algorithms (MAPPO, QMIX, MAA2C, COMA, I-DQN):** The ablation strictly tests *environmental reward shaping*. Vanilla baselines employ standard, un-augmented architectures (e.g., standard CNN + Linear MLP in `MAPPOModelVanilla`) trained on selfish base rewards. Self-Healing baselines receive the environment's teammate compensation reward ($R_{\text{comp}}$), breadcrumb guidance, and global reward mixing, but lack dedicated self-healing neural modules.
+   - **For RSPO (Proposed Method):** Both RSPO Vanilla and RSPO Self-Heal instantiate the full `RSPOModelV2` architecture (FHE, CSSA, DOVD, RAC). In RSPO Vanilla, the environment completely zeros out compensation rewards ($R_{\text{comp}} \equiv 0.0$) and disables breadcrumbs ($H_{\text{comp}} = 0$). While the neural modules process telemetry, the lack of environment reward reinforcement causes `V_takeover` to collapse to 0, providing no policy incentive to route toward crash sites. RSPO Vanilla's substantial margin over MAPPO Vanilla (78.7% vs. 32.2% coverage) is driven by FHE internal battery awareness (tracking $b_{\min}, \bar{b}$) and temperature-scaled action selection ($\tau = 0.20$), which breaks the severe initial spatial deadlock suffered by MAPPO under greedy argmax.
 
 ---
 
@@ -549,7 +551,8 @@ Where:
 - **Probability Gradient Tracking Bonus ($r_{\text{grad}}$):**
   $$r_{\text{grad}, i}(t) = \begin{cases} +1.0 & \text{if } P_t(x_i, y_i) > P_{t-1}(x_i, y_i) + 10^{-6} \\ -0.5 & \text{if } P_t(x_i, y_i) < P_{t-1}(x_i, y_i) - 10^{-6} \end{cases}$$
 - **Target Interception Jackpot ($r_{\text{found}} = +500.0$):** Awarded when physical target capture is confirmed (`info["Found"] == True`).
-- **Step, Battery, and Obstacle Penalties:** Identical to coverage ($r_{\text{step}} = -0.1$, $C_{\text{collision}} = -2.0$, $C_{\text{death}} = -50.0$).
+- **Step, Battery, and Obstacle Penalties:** In design ($r_{\text{step}} = -0.1$, $C_{\text{collision}} = -2.0$, $C_{\text{death}} = -50.0$).
+- **Implementation Audit Note:** In [`tracking_reward_wrapper.py:L79`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/tracking/tracking_reward_wrapper.py#L79), the tracking wrapper assigns `rewards[agent] = float(shaped_reward)` rather than accumulating (`+=`), effectively overriding the underlying `BatteryStationWrapper`'s $-50.0$ battery death penalty and teammate compensation rewards during tracking episodes.
 
 ---
 
@@ -564,7 +567,8 @@ To encourage coordinated spatial dispersion without eliminating individual accou
 3. **Blended Return Assignment:** Each agent receives a balanced mixture of team and individual exploration returns, with the individual's crash compensation added back undiluted:
    $$R_i(t) = \alpha \cdot \bar{r}_{\text{base}}(t) + (1 - \alpha) \cdot r_{i, \text{base}}(t) + R_{\text{comp}, i}(t)$$
 
-In the **Vanilla condition**, $\alpha = 0.0$ (wrapper omitted), giving $R_i(t) \equiv r_{i, \text{base}}(t)$ with zero cooperative sharing.
+In the **Vanilla condition**, $\alpha = 0.0$ (wrapper omitted), giving $R_i(t) \equiv r_{i, \text{base}}(t)$ with zero cooperative sharing.  
+*(Analytical Note: For value-factorized and centralized-critic algorithms in EPyMARL that sum all agent rewards into a common scalar $\sum_{i=1}^N R_i = \sum_{i=1}^N r_i$, global reward mixing is mathematically an identity operation during training; it only affects per-agent learners such as RSPO, MAPPO, and I-DQN).*
 
 ---
 
@@ -582,7 +586,7 @@ $$\text{SMEI}_{\text{Tracking}} = \left( \text{Intercept Rate}^{0.20} \times \te
 ### 8.4 Core Evaluation Metrics
 - **Mean Area Coverage Rate (%):** Percentage of accessible free cells searched.
 - **Swarm Survival Rate (%):** Percentage of drones reaching episode end with $b_i > 0$.
-- **Mean Battery Health (%):** Average final battery reserve across surviving drones.
+- **Mean Battery Health (%):** Time-averaged battery percentage across all timesteps and all drones during the episode (`total_battery / battery_samples`), not the final step battery. Drones that deplete their battery early show an average of $\sim 50\%$ from their operational discharge trajectory.
 - **Charging Steps:** Number of timesteps spent recharging at base station $(0, 0)$.
 - **Intercept Rate (%):** Percentage of episodes where target was successfully tracked within capture radius.
 - **Mean Discovery Time:** Average timesteps elapsed before initial target detection.
@@ -609,7 +613,7 @@ $$\text{SMEI}_{\text{Tracking}} = \left( \text{Intercept Rate}^{0.20} \times \te
 ### 9.2 Discovery 2: The COMA Coverage Credit Assignment Pathology
 - **The Symptom:** Across both 2D and 3D coverage benchmarks, COMA exhibited zero variance across 100 seeds, achieving near-zero coverage ($\sim 1.31\%$, exactly 8 cells searched).
 - **The Cause:** Analysis of the full 20M-step training log confirmed this was a failure of COMA's counterfactual baseline in persistent coverage:
-  - Early in training, flights away from base resulted in battery depletion and catastrophic penalties ($-100.0$).
+  - Early in training, flights away from base resulted in battery depletion and catastrophic penalties ($-50.0$).
   - COMA's counterfactual advantage $A^a(s, \mathbf{u}) = Q(s, \mathbf{u}) - \sum_{u'} \pi(u') Q(s, (\mathbf{u}^{-a}, u'))$ assigned strong negative advantage to any exploration move.
   - The swarm converged to a local equilibrium: all 4 drones circled the $3 \times 3$ charging station area continuously, collecting safe hover rewards without risking battery death.
 
