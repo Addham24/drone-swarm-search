@@ -41,10 +41,12 @@
    - 7.2 Zero-Shot Spatial Rescaling (50×50 → 25×25)
    - 7.3 Zero-Shot 3D Lifting (DSSE3DAdapter)
    - 7.4 Physical Obstacle Airspace Wrapper
+   - 7.5 The Vanilla vs. Self-Healing Environment & Algorithmic Ablation Specification
 8. [Reward Formulations & Evaluation Metrics](#8-reward-formulations--evaluation-metrics)
-   - 8.1 Mission Reward Functions
-   - 8.2 Swarm Mission Efficiency Index (SMEI)
-   - 8.3 Core Evaluation Metrics
+   - 8.1 Code-Verified Mission Reward Functions (Coverage & Tracking)
+   - 8.2 Global Cooperative Reward Mixing (VDN Blending)
+   - 8.3 Swarm Mission Efficiency Index (SMEI)
+   - 8.4 Core Evaluation Metrics
 9. [Major Scientific Discoveries & Audits](#9-major-scientific-discoveries--audits)
    - 9.1 Discovery 1: Asymmetric Checkpoint Selection Resolution
    - 9.2 Discovery 2: The COMA Coverage Credit Assignment Pathology
@@ -407,25 +409,32 @@ Where $H_{\text{comp}} = 100$ timesteps. This provides a temporary guidance grad
 ## 7. Environment Wrappers & Sim-to-Sim Infrastructure
 
 ### 7.1 Wrapper Pipeline Architecture
-All models interact through a clean wrapper stack built on PettingZoo ParallelEnv:
+All models interact through a clean wrapper stack built on the PettingZoo ParallelEnv API:
 
 ```
 [Raw DSSE Environment: CoverageDroneSwarmSearch / DroneSwarmSearch]
   │
   ▼
-[AllPositionsWrapper] ──► Extracts and broadcasts peer coordinates
+[AllPositionsWrapper] ──► Extracts and broadcasts peer coordinates to all drones
   │
   ▼
-[BatteryStationWrapper] ──► Enforces battery discharge, charging at (0,0), and compensation
+[BatteryStationWrapper] ──► Manages battery depletion, base recharging at (0,0), fault injection,
+  │                         low-battery breadcrumb shaping, and teammate crash compensation
   │
   ▼
-[ObstacleAirspaceWrapper] ──► Enforces impassable wall physics and collision penalties
+[GlobalRewardWrapper] ──► VDN-style cooperative reward mixing (mixing_alpha=0.5, Self-Healing only)
   │
   ▼
-[SpatialRescalingWrapper] ──► Downsamples 50×50 grids to 25×25 (Active for 50×50 topologies)
+[ObstacleAirspaceWrapper] ──► Enforces impassable wall physics, collision penalties, and -1.0 masks
   │
   ▼
-[DSSE3DAdapter] ──► Manages 3D voxel transitions and altitude control (Active for 3D topologies)
+[SpatialRescalingWrapper] ──► 2x2 average pooling from 50×50 down to 25×25 (Active for 50×50 maps)
+  │
+  ▼
+[RetainDronePosWrapper] ──► Fixes starting spawn coordinates near base station: [(0,0),(0,1),(1,0),(1,1)]
+  │
+  ▼
+[DSSE3DAdapter] ──► Extends 2D policies into 3D volumetric voxels & manages altitude (3D maps only)
 ```
 
 ---
@@ -457,23 +466,107 @@ Lifts 2D policies into 3D voxel space:
 
 ---
 
-## 8. Reward Formulations & Evaluation Metrics
+### 7.5 The Vanilla vs. Self-Healing Environment & Algorithmic Ablation Specification
 
-### 8.1 Mission Reward Functions
+A central scientific question of this investigation is whether the **Self-Healing** framework provides genuine multi-agent resilience, or whether vanilla baseline agents perform equally well under adversity. To evaluate this rigorously, the environment and policy pipelines implement an explicit, double-blind ablation across both environmental reward structures and neural architectures:
 
-#### Coverage Reward Formulation:
-$$R_{\text{cov}}(t) = 100.0 \cdot \Delta P_{\text{searched}}(t) + R_{\text{battery}}(t) + R_{\text{comp}}(t) - C_{\text{collision}} - C_{\text{crash}}$$
-- $\Delta P_{\text{searched}}(t)$: Sum of newly cleared probability mass.
-- $R_{\text{battery}}(t)$: $+0.10$ for docking at $(0, 0)$ when $b < 50\%$; $-0.05$ per step spent cruising below $b < 20\%$.
-- $C_{\text{collision}} = -2.0$: Penalty for colliding with static obstacles.
-- $C_{\text{crash}} = -100.0$: Terminal penalty if battery reaches zero.
+#### Environmental Reward Ablation Summary:
 
-#### Tracking Reward Formulation:
-$$R_{\text{track}}(t) = 5.0 \cdot \exp\left(-\frac{\|p_i - p_{\text{target}}\|}{d_{\text{scale}}}\right) + 50.0 \cdot \mathbb{I}(\text{Intercept}) - C_{\text{crash}}$$
+| Mechanism / Parameter | Self-Healing Condition (`is_self_heal=True`) | Vanilla Condition (`is_self_heal=False`) | Code Verification & Status |
+| :--- | :--- | :--- | :--- |
+| **Crash Compensation Bonus** | `COMPENSATION_BONUS = 2.5` | `COMPENSATION_BONUS = 0.0` | **Disabled in Vanilla** |
+| **Crash Compensation Penalty** | `COMPENSATION_PENALTY = -0.5` | `COMPENSATION_PENALTY = 0.0` | **Disabled in Vanilla** |
+| **Compensation Horizon** | `COMPENSATION_HORIZON = 100` steps | `COMPENSATION_HORIZON = 0` steps | **Disabled in Vanilla** |
+| **Crash Compensation Reward ($R_{\text{comp}}$)** | Active: $+2.5 \times \text{fade}$ (closing) / $-0.5 \times \text{fade}$ (distancing) | **Identically Zero ($R_{\text{comp}} \equiv 0.0$)** | **Disabled in Vanilla** |
+| **Low-Battery Breadcrumb Guidance** | Active for $b_i < 30$: $\pm 0.3 \times \text{urgency}$ toward $(0, 0)$ | **Completely Inactive** (`COMPENSATION_HORIZON == 0`) | **Disabled in Vanilla** |
+| **Global Cooperative Reward Mixing** | Active (`GlobalRewardWrapper`, $\alpha = 0.5$) | **Omitted** (Pure individual rewards $R_i = r_i$) | **Disabled in Vanilla** |
+| **Random Fault Injection ($p = 0.0005$)** | **ACTIVE** (1 failure per ~500 steps) | **ACTIVE** (1 failure per ~500 steps) | **Active in Both (Adversity Parity)** |
+| **Battery Discharge & Recharging** | Depletion: $-1$/step; Recharge: $+15$/step at $(0,0)$ | Depletion: $-1$/step; Recharge: $+15$/step at $(0,0)$ | **Active in Both** |
+| **Battery Depletion Terminal Penalty** | $-50.0$ when $b_i \le 0$ | $-50.0$ when $b_i \le 0$ | **Active in Both** |
+
+#### Key Technical Takeaways on the Vanilla Ablation:
+1. **Does Vanilla disable both self-healing rewards or just one?**
+   **Vanilla disables BOTH self-healing rewards completely.**
+   - In `BatteryStationWrapper`:
+     ```python
+     if not is_self_heal:
+         env.COMPENSATION_BONUS = 0.0
+         env.COMPENSATION_PENALTY = 0.0
+         env.COMPENSATION_HORIZON = 0
+     ```
+   - **Self-Healing Reward 1 (Crash Compensation):** Because `COMPENSATION_BONUS = 0.0`, `COMPENSATION_PENALTY = 0.0`, and `COMPENSATION_HORIZON = 0`, surviving drones receive zero guidance toward a fallen teammate's sector ($R_{\text{comp}} \equiv 0.0$).
+   - **Self-Healing Reward 2 (Low-Battery Breadcrumb Guidance):** In `BatteryStationWrapper` (lines 149–156):
+     ```python
+     if self.COMPENSATION_HORIZON > 0 and self.battery[agent] < 30:
+         urgency = 1.0 + (30 - self.battery[agent]) / 30.0
+         if current_dist < prev: rewards[agent] += 0.3 * urgency
+         elif current_dist > prev: rewards[agent] -= 0.3 * urgency
+     ```
+     Because `COMPENSATION_HORIZON == 0` in Vanilla, this block is bypassed entirely. Drones receive **no distance-based gradient shaping toward the charging station** when low on power. In Vanilla, drones must learn all battery conservation and charging schedules solely from the terminal death penalty ($-50.0$).
+2. **Global Reward Mixing:**
+   In Self-Healing, `GlobalRewardWrapper` splits returns ($50\%$ team average $+ 50\%$ individual) to enforce cooperative spatial division. In Vanilla, this wrapper is omitted; each agent receives $100\%$ selfish individual rewards ($R_i = r_i$).
+3. **Adversity Parity (Hardware Fault Injection):**
+   Random hardware failures ($p = 0.0005$ per step per drone) remain **strictly enabled** in Vanilla during both training and evaluation (`# VANILLA: Fault injection ON (same adversity), but NO teammate compensation`). This guarantees that Vanilla baselines are subjected to the exact same physical stress and peer dropouts, isolating the true marginal utility of the self-healing rewards and neural mechanisms.
+4. **Neural Architecture Ablation:**
+   - In RSPO Vanilla: Fleet Health Embedding (FHE) is disabled; Crash-Sector Spatial Attention (CSSA) is bypassed; the Dual-Objective Value Decomposition (DOVD) critic is collapsed into a single value head ($V(s)$); and the Resilience-Adaptive Clipping (RAC) gate is replaced by standard fixed PPO clipping ($\epsilon = 0.20$).
+   - In RSPO Self-Healing: All 4 self-healing sub-networks (FHE, CSSA, DOVD, RAC) operate in concert with the self-healing environment wrappers.
 
 ---
 
-### 8.2 Swarm Mission Efficiency Index (SMEI)
+## 8. Reward Formulations & Evaluation Metrics
+
+### 8.1 Code-Verified Mission Reward Functions (Coverage & Tracking)
+
+The true reward formulations executed across the codebase ([`battery_station_wrapper.py`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/battery_station_wrapper.py), [`global_reward_wrapper.py`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/global_reward_wrapper.py), [`tracking_reward_wrapper.py`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/tracking/tracking_reward_wrapper.py), and [`obstacle_airspace_wrapper.py`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/obstacle_airspace_wrapper.py)) are formulated as follows:
+
+#### 1. Area Coverage Reward Formulation:
+Each drone $i$ receives an instantaneous individual reward $r_{i, \text{cov}}(t)$ at each timestep:
+
+$$r_{i, \text{cov}}(t) = r_{\text{step}} + r_{\text{cell}} \cdot \Delta N_{\text{cells}, i}(t) + r_{\text{done}} \cdot \mathbb{I}(\text{Mission Complete}) + R_{\text{breadcrumb}, i}(t) + R_{\text{comp}, i}(t) - C_{\text{collision}, i}(t) - C_{\text{death}, i}(t)$$
+
+Where:
+- **Default Step Penalty ($r_{\text{step}} = -0.1$):** Applied to every active drone per timestep to incentivize rapid mission completion.
+- **Cell Discovery Reward ($r_{\text{cell}} = +5.0$):** Awarded whenever drone $i$ visits an unvisited free grid cell (`reward_poc = 0.0`, providing uniform discovery incentives).
+- **Mission Completion Bonus ($r_{\text{done}} = +500.0$):** Terminal jackpot awarded when $100\%$ of accessible free space is searched.
+- **Low-Battery Breadcrumb Shaping ($R_{\text{breadcrumb}, i}$):** Active only in Self-Healing (`COMPENSATION_HORIZON > 0`) when battery $b_i < 30$:
+  $$R_{\text{breadcrumb}, i}(t) = \left( 1.0 + \frac{30 - b_i}{30} \right) \times \begin{cases} +0.3 & \text{if } d(p_i, \text{base})_t < d(p_i, \text{base})_{t-1} \\ -0.3 & \text{if } d(p_i, \text{base})_t > d(p_i, \text{base})_{t-1} \end{cases}$$
+- **Teammate Crash Compensation ($R_{\text{comp}, i}$):** Active only in Self-Healing (`COMPENSATION_HORIZON > 0`) following peer attrition:
+  $$R_{\text{comp}, i}(t) = \max\left(0, 1 - \frac{t - t_{\text{crash}}}{100}\right) \times \begin{cases} +2.5 & \text{if } d(p_i, p_{\text{crash}})_t < d(p_i, p_{\text{crash}})_{t-1} \\ -0.5 & \text{if } d(p_i, p_{\text{crash}})_t > d(p_i, p_{\text{crash}})_{t-1} \end{cases}$$
+- **Obstacle Collision Penalty ($C_{\text{collision}} = -2.0$):** Incurred per attempted transition into a static building block (drone remains in current cell).
+- **Battery Depletion Crash Penalty ($C_{\text{death}} = -50.0$):** Terminal penalty assessed if battery drops to zero ($b_i \le 0$).
+- **Random Hardware Fault Penalty ($C_{\text{fault}} = 0.0$):** When an unpreventable Poisson actuator failure occurs, the drone is marked dead ($b_i = 0$), but receives no negative reward ($0.0$).
+- **Base Station Recharging:** Docking at $(0, 0)$ recharges battery at $+15$ units/step up to max capacity $125$.
+
+#### 2. Dynamic Target Tracking Reward Formulation:
+In target pursuit mode ([`tracking_reward_wrapper.py`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/tracking/tracking_reward_wrapper.py)), drone $i$ receives:
+
+$$r_{i, \text{track}}(t) = r_{\text{step}} + 5.0 \cdot P_t(x_i, y_i) + r_{\text{grad}, i}(t) + r_{\text{found}} \cdot \mathbb{I}(\text{Target Intercepted}) + R_{\text{breadcrumb}, i}(t) + R_{\text{comp}, i}(t) - C_{\text{collision}} - C_{\text{death}}$$
+
+Where:
+- **Probability Proportional Reward:** $+5.0 \times P_t(x_i, y_i)$, rewarding presence in high-likelihood target cells.
+- **Probability Gradient Tracking Bonus ($r_{\text{grad}}$):**
+  $$r_{\text{grad}, i}(t) = \begin{cases} +1.0 & \text{if } P_t(x_i, y_i) > P_{t-1}(x_i, y_i) + 10^{-6} \\ -0.5 & \text{if } P_t(x_i, y_i) < P_{t-1}(x_i, y_i) - 10^{-6} \end{cases}$$
+- **Target Interception Jackpot ($r_{\text{found}} = +500.0$):** Awarded when physical target capture is confirmed (`info["Found"] == True`).
+- **Step, Battery, and Obstacle Penalties:** Identical to coverage ($r_{\text{step}} = -0.1$, $C_{\text{collision}} = -2.0$, $C_{\text{death}} = -50.0$).
+
+---
+
+### 8.2 Global Cooperative Reward Mixing (VDN Blending)
+
+To encourage coordinated spatial dispersion without eliminating individual accountability for battery conservation, the Self-Healing pipeline applies [`GlobalRewardWrapper`](file:///Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src/global_reward_wrapper.py) with mixing parameter $\alpha = 0.5$:
+
+1. **Reward Decomposition:** Base rewards (cell discovery, steps, battery survival) are isolated from compensation rewards:
+   $$r_{i, \text{base}}(t) = r_i(t) - R_{\text{comp}, i}(t)$$
+2. **Global Team Average:** The mean cooperative exploration return across the active fleet is computed:
+   $$\bar{r}_{\text{base}}(t) = \frac{1}{N} \sum_{j=1}^N r_{j, \text{base}}(t)$$
+3. **Blended Return Assignment:** Each agent receives a balanced mixture of team and individual exploration returns, with the individual's crash compensation added back undiluted:
+   $$R_i(t) = \alpha \cdot \bar{r}_{\text{base}}(t) + (1 - \alpha) \cdot r_{i, \text{base}}(t) + R_{\text{comp}, i}(t)$$
+
+In the **Vanilla condition**, $\alpha = 0.0$ (wrapper omitted), giving $R_i(t) \equiv r_{i, \text{base}}(t)$ with zero cooperative sharing.
+
+---
+
+### 8.3 Swarm Mission Efficiency Index (SMEI)
 To evaluate multi-objective Pareto performance beyond raw coverage, the benchmark introduces **SMEI**:
 
 $$\text{SMEI}_{\text{Coverage}} = \left( \text{Coverage Rate}^{0.40} \times \text{Survival Rate}^{0.30} \times \text{Avg Battery}^{0.30} \right) \times 100\%$$
@@ -484,7 +577,7 @@ $$\text{SMEI}_{\text{Tracking}} = \left( \text{Intercept Rate}^{0.20} \times \te
 
 ---
 
-### 8.3 Core Evaluation Metrics
+### 8.4 Core Evaluation Metrics
 - **Mean Area Coverage Rate (%):** Percentage of accessible free cells searched.
 - **Swarm Survival Rate (%):** Percentage of drones reaching episode end with $b_i > 0$.
 - **Mean Battery Health (%):** Average final battery reserve across surviving drones.
