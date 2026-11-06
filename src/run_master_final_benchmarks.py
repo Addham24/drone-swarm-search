@@ -200,7 +200,7 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
         json.dump(manifest, f, indent=2)
 
     log_path = os.path.join(base_root, "evaluation_log.txt")
-    log_f = open(log_path, "a", buffering=1)
+    log_f = open(log_path, "w" if force else "a", buffering=1)
 
     def log(msg):
         print(msg, flush=True)
