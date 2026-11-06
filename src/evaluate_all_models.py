@@ -331,7 +331,7 @@ if __name__ == "__main__":
         "I-DQN_SelfHeal": {
             "algo_type": "dqn", "env_name": "DSSE_Coverage_IDQN_SelfHeal_Eval", "model_name": "IDQNModelSelfHeal_Eval",
             "model_cls": MAPPOModelVanilla, "env_fn": create_selfheal_env,
-            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_I-DQN_selfheal_proper_pt2/DQN_DSSE_Coverage_8aefa_00000_0_2026-07-16_05-38-15/checkpoint_000565"),
+            "path": os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_I-DQN_selfheal_proper_pt2/DQN_DSSE_Coverage_8aefa_00000_0_2026-07-16_05-38-15/checkpoint_000587"),
         },
     }
 
@@ -346,7 +346,7 @@ if __name__ == "__main__":
         },
         "MAA2C_Vanilla": {
             "type": "epymarl", "env_fn": create_vanilla_env,
-            "path": os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_vanilla_seed782869923_dsse_coverage_2026-06-16 18:45:27.715438/18795000/agent.th"),
+            "path": os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_vanilla_seed782869923_dsse_coverage_2026-06-16 18:45:27.715438/10035000/agent.th"),
         },
         "MAA2C_SelfHeal": {
             "type": "epymarl", "env_fn": create_selfheal_env,

@@ -36,12 +36,12 @@ MODEL_SPECS = [
     ("MAPPO SelfHeal", "rllib",     "MAPPOModelVanilla", os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/MAPPO_selfheal_final_v2/checkpoints/checkpoint_final_ts_20004864.pt"), True),
     ("QMIX Vanilla",   "epymarl",   None,                os.path.join(SRC_DIR, "results/models/qmix_true_vanilla_v1_seed533532401_dsse_coverage_2026-07-18 02:06:54.683275/17040000/agent.th"), False),
     ("QMIX SelfHeal",  "epymarl",   None,                os.path.join(SRC_DIR, "results/models/qmix_selfheal_v2_seed533532401_dsse_coverage_2026-07-17 03:23:47.879210/19044000/agent.th"), True),
-    ("MAA2C Vanilla",  "epymarl",   None,                os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_vanilla_seed782869923_dsse_coverage_2026-06-16 18:45:27.715438/18795000/agent.th"), False),
+    ("MAA2C Vanilla",  "epymarl",   None,                os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_vanilla_seed782869923_dsse_coverage_2026-06-16 18:45:27.715438/10035000/agent.th"), False),
     ("MAA2C SelfHeal", "epymarl",   None,                os.path.join(SRC_DIR, "results/models/maa2c_cnn_bigbatch_v3_original_seed776978465_dsse_coverage_2026-07-15 06:30:31.971452/12675000/agent.th"), True),
     ("COMA Vanilla",   "epymarl",   None,                os.path.join(SRC_DIR, "results/models/coma_vanilla_proper_seed452926189_dsse_coverage_2026-07-10 01:59:53.354626/19338000/agent.th"), False),
     ("COMA SelfHeal",  "epymarl",   None,                os.path.join(SRC_DIR, "results/models/coma_selfhealing_final_stable_seed339532096_dsse_coverage_2026-07-06 10:52:47.933607/16692000/agent.th"), True),
     ("I-DQN Vanilla",   "rllib_dqn", None,                os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_vanilla_I-DQN_vanilla_proper/DQN_DSSE_Coverage_61018_00000_0_2026-07-16_09-47-37/checkpoint_000609"), False),
-    ("I-DQN SelfHeal",  "rllib_dqn", None,                os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_I-DQN_selfheal_proper_pt2/DQN_DSSE_Coverage_8aefa_00000_0_2026-07-16_05-38-15/checkpoint_000565"), True),
+    ("I-DQN SelfHeal",  "rllib_dqn", None,                os.path.join(SRC_DIR, "ray_res/DSSE_Coverage/QMIX_I-DQN_selfheal_proper_pt2/DQN_DSSE_Coverage_8aefa_00000_0_2026-07-16_05-38-15/checkpoint_000587"), True),
 ]
 
 ENV_CONFIGS = [
