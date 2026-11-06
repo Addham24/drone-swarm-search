@@ -276,9 +276,8 @@ class DSSE3DAdapter(BaseParallelWrapper):
         # Extract initial 2D positions from the base environment
         base_env = self._get_base_env()
         if hasattr(base_env, 'agents_positions') and base_env.agents_positions:
-            # DSSE agents_positions stores (y, x) = (row, col)
-            # VoxelGrid expects (x, y) = (col, row)
-            positions_2d = [(pos[1], pos[0]) for pos in base_env.agents_positions]
+            # DSSE agents_positions stores (x, y) = (col, row)
+            positions_2d = [(pos[0], pos[1]) for pos in base_env.agents_positions]
         else:
             # Fallback: parse from observation
             positions_2d = []
@@ -404,12 +403,11 @@ class DSSE3DAdapter(BaseParallelWrapper):
         # Step 4: Sync updated 2D positions back to VoxelGrid
         base_env = self._get_base_env()
         if hasattr(base_env, 'agents_positions') and base_env.agents_positions:
-            for idx, (y, x) in enumerate(base_env.agents_positions):
+            for idx, (x, y) in enumerate(base_env.agents_positions):
                 if idx < self.n_drones:
                     agent = self.env.possible_agents[idx]
                     if agent in obs:
-                        # DSSE agents_positions is (y, x) = (row, col)
-                        # VoxelGrid expects (x, y) = (col, row)
+                        # DSSE agents_positions is (x, y) = (col, row)
                         move_ok = self.voxel.apply_2d_action(idx, x, y)
                         if not move_ok:
                             self.obstacle_collisions_3d_count += 1
@@ -475,6 +473,10 @@ class DSSE3DAdapter(BaseParallelWrapper):
         seen = self.seen_states_3d & self._coverage_universe
         base_env.seen_states = set(seen)
         base_env.not_seen_states = self._coverage_universe - seen
+        if hasattr(base_env, 'probability_matrix') and hasattr(base_env.probability_matrix, 'get_matrix'):
+            mat = base_env.probability_matrix.get_matrix()
+            for (cx, cy) in seen:            # seen_states use (x, y)
+                mat[cy, cx] = 0.0            # DSSE matrix is indexed [y, x]
 
     def get_coverage_rate(self) -> float:
         """Fraction of 2D free cells scanned so far (same definition as the 2D benchmark)."""
@@ -512,7 +514,7 @@ class DSSE3DAdapter(BaseParallelWrapper):
                     alt_context,
                 ])
 
-                obs[agent] = (augmented_positions, matrix)
+                obs[agent] = (augmented_positions, np.nan_to_num(matrix, nan=0.0))
 
         return obs
 
