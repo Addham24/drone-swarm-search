@@ -157,7 +157,7 @@ def worker_eval_3d(args):
     return model_name, summary, records
 
 
-def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6):
+def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
     is_3d = (dim.lower() == "3d")
     worker_fn = worker_eval_3d if is_3d else worker_eval_2d
     
@@ -165,14 +165,24 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6):
     from dsse_3d.run_all_3d_evaluations import generate_coverage_3d_dashboard
     gen_dash = generate_coverage_3d_dashboard if is_3d else generate_coverage_2d_dashboard
 
-    base_out = os.path.expanduser(f"~/Desktop/Results/{dim.upper()}-final/Coverage")
+    base_root = os.path.expanduser(f"~/Desktop/Results/{dim.upper()}-final")
+    base_out = os.path.join(base_root, "Coverage")
     os.makedirs(base_out, exist_ok=True)
 
     manifest = {
         "task": "coverage",
         "dimension": dim.upper(),
+        "git_commit_hash": "decd8ff8e50e2c8b292d8d774797341a3f8af048",
+        "git_adapter_fix_commit": "c52c997adf074fcbea2bae50d34e1ba363ee0f16",
+        "run_date": time.strftime("%Y-%m-%d %H:%M:%S"),
         "n_seeds": n_seeds,
         "seeds": [1000, 1000 + n_seeds - 1],
+        "free_cells": {
+            "25x25_Standard": 625,
+            "25x25_Obstacles": 529,
+            "50x50_Standard": 2500,
+            "50x50_Obstacles": 2041,
+        },
         "action_selection": {
             "RSPO": "temperature_sampling (tau=0.20 on 25x25, tau=0.30 on 50x50)",
             "MAPPO": "temperature_sampling (tau=0.20 on 25x25, tau=0.30 on 50x50)",
@@ -180,21 +190,33 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6):
             "I-DQN": "greedy_argmax",
         },
         "checkpoints": {name: path for name, _, _, path, _ in MODEL_SPECS},
+        "re_evaluated_scenarios": f"All 20 {dim.upper()} scenarios (all 12 models)",
         "env_configs": ENV_CONFIGS,
         "fault_regimes": FAULT_REGIMES,
     }
     with open(os.path.join(base_out, "run_manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
+    with open(os.path.join(base_root, "run_manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    log_path = os.path.join(base_root, "evaluation_log.txt")
+    log_f = open(log_path, "a", buffering=1)
+
+    def log(msg):
+        print(msg, flush=True)
+        log_f.write(msg + "\n")
+        log_f.flush()
 
     total_conditions = len(ENV_CONFIGS) * len(FAULT_REGIMES)
     cond_idx = 0
     t_suite_start = time.time()
 
-    print(f"\n{'='*80}")
-    print(f"  LAUNCHING {dim.upper()} COVERAGE MASTER BENCHMARK ({total_conditions} CONDITIONS)")
-    print(f"  Target Directory: {base_out}")
-    print(f"  Workers: {max_workers} Parallel Processes")
-    print(f"{'='*80}\n")
+    log(f"\n{'='*80}")
+    log(f"  LAUNCHING {dim.upper()} COVERAGE MASTER BENCHMARK ({total_conditions} CONDITIONS)")
+    log(f"  Target Directory: {base_out}")
+    log(f"  Workers: {max_workers} Parallel Processes")
+    log(f"  Force Re-run: {force}")
+    log(f"{'='*80}\n")
 
     for env_cfg in ENV_CONFIGS:
         obs_mask = resolve_obstacle_mask(env_cfg["grid_size"]) if env_cfg["has_obstacles"] else None
@@ -208,11 +230,11 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6):
             raw_path = os.path.join(out_dir, f"coverage_{dim.lower()}_raw_seed_by_seed.csv")
             summary_path = os.path.join(out_dir, f"coverage_{dim.lower()}_summary.csv")
             dash_path = os.path.join(out_dir, f"dashboard_coverage_{dim.lower()}.png")
-            if os.path.exists(raw_path) and os.path.exists(summary_path) and os.path.exists(dash_path):
-                print(f"[{cond_idx:02d}/{total_conditions:02d}] {dim.upper()} {env_cfg['label']} | {fault_cfg['label']} [ALREADY EVALUATED - SKIPPING]", flush=True)
+            if not force and os.path.exists(raw_path) and os.path.exists(summary_path) and os.path.exists(dash_path):
+                log(f"[{cond_idx:02d}/{total_conditions:02d}] {dim.upper()} {env_cfg['label']} | {fault_cfg['label']} [ALREADY EVALUATED - SKIPPING]")
                 continue
 
-            print(f"[{cond_idx:02d}/{total_conditions:02d}] {dim.upper()} {env_cfg['label']} | {fault_cfg['label']} ...", flush=True)
+            log(f"[{cond_idx:02d}/{total_conditions:02d}] {dim.upper()} {env_cfg['label']} | {fault_cfg['label']} ...")
 
             tasks = []
             for name, fw, cls_name, path, is_self_heal in MODEL_SPECS:
@@ -245,13 +267,14 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6):
             cov_col = "coverage_rate" if "coverage_rate" in df_summary.columns else "Coverage Rate (%)"
             rspo_cov = df_summary[df_summary["Model"] == "RSPO SelfHeal"][cov_col].values[0]
             mappo_cov = df_summary[df_summary["Model"] == "MAPPO SelfHeal"][cov_col].values[0]
-            print(f"    [✓] Done in {el_cond:.1f}s | RSPO SH: {rspo_cov:.1f}% | MAPPO SH: {mappo_cov:.1f}%", flush=True)
+            log(f"    [✓] Done in {el_cond:.1f}s | RSPO SH: {rspo_cov:.1f}% | MAPPO SH: {mappo_cov:.1f}%")
 
     total_el = (time.time() - t_suite_start) / 60.0
-    print(f"\n{'='*80}")
-    print(f"  {dim.upper()} MASTER BENCHMARK COMPLETE IN {total_el:.1f} MINUTES!")
-    print(f"  All 20 Conditions & Dashboards Saved to: {base_out}")
-    print(f"{'='*80}\n")
+    log(f"\n{'='*80}")
+    log(f"  {dim.upper()} MASTER BENCHMARK COMPLETE IN {total_el:.1f} MINUTES!")
+    log(f"  All 20 Conditions & Dashboards Saved to: {base_out}")
+    log(f"{'='*80}\n")
+    log_f.close()
 
 
 def run_post_processing():
@@ -273,15 +296,7 @@ def run_post_processing():
         if os.path.exists(m_cov) and not os.path.exists(m_root):
             shutil.copy2(m_cov, m_root)
 
-    # 2. Copy current execution log into 2D-final and 3D-final
-    log_files = glob.glob("/Users/AdhamMotawi/.gemini/antigravity-ide/brain/261d090f-67ca-4f3a-8220-dd983c502482/.system_generated/tasks/task-*.log")
-    if log_files:
-        latest_log = max(log_files, key=os.path.getmtime)
-        shutil.copy2(latest_log, os.path.join(b2d, "evaluation_log.txt"))
-        shutil.copy2(latest_log, os.path.join(b3d, "evaluation_log.txt"))
-        print(f"  [✓] Archived evaluation log to {b2d}/evaluation_log.txt and {b3d}/evaluation_log.txt")
-
-    # 3. Degradation curves
+    # 2. Degradation curves
     if os.path.exists(os.path.join(b2d, "Coverage")):
         print("  [▶] Generating 2D publication degradation curves...")
         subprocess.run([sys.executable, os.path.join(SRC_DIR, "generate_2d_degradation_curves.py"), "--base_dir", b2d], check=False)
@@ -290,12 +305,12 @@ def run_post_processing():
         print("  [▶] Generating 3D publication degradation curves...")
         subprocess.run([sys.executable, os.path.join(SRC_DIR, "dsse_3d/generate_degradation_curves.py"), "--base_dir", b3d], check=False)
 
-    # 4. Master RQ figures
+    # 3. Master RQ figures
     print("  [▶] Generating All Research Question (RQ1, RQ3, RQ4) Visualizations...")
     subprocess.run([sys.executable, os.path.join(SRC_DIR, "generate_all_final_visualizations.py")], check=False)
 
-    # 5. Build master ZIP archive for the user
-    zip_path = os.path.expanduser("~/Desktop/Results/final_evaluation_results.zip")
+    # 4. Build master ZIP archive for the user (v2)
+    zip_path = os.path.expanduser("~/Desktop/Results/final_evaluation_results_v2.zip")
     print(f"  [▶] Building master ZIP archive: {zip_path} ...")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root_dir in [b2d, b3d]:
@@ -316,10 +331,11 @@ if __name__ == "__main__":
     parser.add_argument("--dim", type=str, default="both", choices=["2d", "3d", "both"])
     parser.add_argument("--n_seeds", type=int, default=100)
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--force", action="store_true", help="Force overwrite existing benchmarks")
     args = parser.parse_args()
 
     dims_to_run = ["2d", "3d"] if args.dim == "both" else [args.dim]
     for d in dims_to_run:
-        run_benchmark_suite(dim=d, n_seeds=args.n_seeds, max_workers=args.workers)
+        run_benchmark_suite(dim=d, n_seeds=args.n_seeds, max_workers=args.workers, force=args.force)
 
     run_post_processing()
