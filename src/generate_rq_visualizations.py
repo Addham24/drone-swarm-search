@@ -80,10 +80,6 @@ def load_all_fault_dataset(dim):
     """Load all 20 CSV files (4 environments x 5 fault rates) for 2D or 3D."""
     base = BASE_2D if dim == "2D" else BASE_3D
     prefix = dim.lower()
-    cov_c = "coverage_rate" if dim == "2D" else "Coverage Rate (%)"
-    surv_c = "survival_rate" if dim == "2D" else "Survival Rate (%)"
-    smei_c = "smei" if dim == "2D" else "SMEI (%)"
-
     rows = []
     for env in ENVS:
         for fault in FAULT_LEVELS:
@@ -91,6 +87,9 @@ def load_all_fault_dataset(dim):
             if not os.path.exists(p):
                 raise FileNotFoundError(f"Missing CSV: {p}")
             df = pd.read_csv(p)
+            cov_c = "coverage_rate" if "coverage_rate" in df.columns else "Coverage Rate (%)"
+            surv_c = "survival_rate" if "survival_rate" in df.columns else "Survival Rate (%)"
+            smei_c = "smei" if "smei" in df.columns else "SMEI (%)"
             for _, r in df.iterrows():
                 rows.append({
                     "Dim": dim,

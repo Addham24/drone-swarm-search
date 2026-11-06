@@ -109,9 +109,15 @@ def _plot_task_metric(task, metric_col, metric_label, filename_suffix):
             csv_path = os.path.join(BASE_DIR, task, env, fault_tag, f"{task.lower()}_3d_summary.csv")
             if os.path.exists(csv_path):
                 df = pd.read_csv(csv_path)
+                col = metric_col
+                if col not in df.columns:
+                    for alias in [metric_col.lower(), "coverage_rate", "smei", "survival_rate"]:
+                        if alias in df.columns:
+                            col = alias
+                            break
                 for _, row in df.iterrows():
                     m = row["Model"]
-                    val = row[metric_col] if metric_col in row else 0.0
+                    val = row[col] if col in row else 0.0
                     if m not in model_data:
                         model_data[m] = []
                     model_data[m].append((fault_prob, val))

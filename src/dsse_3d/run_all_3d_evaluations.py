@@ -448,9 +448,11 @@ def evaluate_coverage_3d_episode(
         # Authoritative final coverage straight from the 3D state (2D free-cell denominator)
         final_coverage = env.get_coverage_rate()
         # Pure mission return: identical formula to the 2D coverage evaluators
-        # (cells_covered * 5.0 == coverage * free_cells * 5.0). The shaped env return
-        # (incl. battery / 3D penalties) is kept separately for transparency.
         mission_return = final_coverage * env_config["free_cells"] * 5.0
+        f_cov = max(0.001, final_coverage)
+        f_surv = max(0.001, survival_rate / 100.0)
+        f_batt = max(0.001, avg_batt / 100.0)
+        smei_seed = (f_cov**0.40 * f_surv**0.30 * f_batt**0.30) * 100.0
 
         records.append({
             "seed": seed,
@@ -460,6 +462,7 @@ def evaluate_coverage_3d_episode(
             "crash_events": crash_events,
             "survival_rate": survival_rate,
             "avg_battery": avg_batt,
+            "smei": smei_seed,
             "charging_steps": charging_steps,
             "mean_altitude": mean_alt,
             "altitude_changes": metrics_3d["altitude_changes"],

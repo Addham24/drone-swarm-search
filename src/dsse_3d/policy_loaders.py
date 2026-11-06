@@ -83,7 +83,8 @@ def load_rllib_ppo_policy(model_cls, checkpoint_path, model_name, greedy, sample
             if agent not in obs_dict:
                 continue
             pos, matrix = obs_dict[agent]
-            pos_t = th.tensor(pos, dtype=th.float32).unsqueeze(0)
+            pos_2d = pos[:22] if len(pos) > 22 else pos
+            pos_t = th.tensor(pos_2d, dtype=th.float32).unsqueeze(0)
             mat_t = th.tensor(matrix, dtype=th.float32).unsqueeze(0)
             with th.no_grad():
                 logits, _ = model({"obs": (pos_t, mat_t)}, [], None)
@@ -176,7 +177,8 @@ def load_rllib_dqn_policy(checkpoint_path):
             if agent not in obs_dict:
                 continue
             pos, matrix = obs_dict[agent]
-            pos_t = th.tensor(pos, dtype=th.float32).unsqueeze(0)
+            pos_2d = pos[:22] if len(pos) > 22 else pos
+            pos_t = th.tensor(pos_2d, dtype=th.float32).unsqueeze(0)
             mat_t = th.tensor(matrix, dtype=th.float32).unsqueeze(0)
             with th.no_grad():
                 actions[agent] = int(net.q_values(pos_t, mat_t).argmax(dim=-1).item())
@@ -226,8 +228,9 @@ def load_epymarl_policy_strict(model_th_path, n_agents=4):
         for i, name in enumerate(agents):
             if name in obs_dict:
                 positions, matrix = obs_dict[name]
+                pos_2d = positions[:22] if len(positions) > 22 else positions
                 flat = np.concatenate([
-                    np.asarray(positions, dtype=np.float32).flatten(),
+                    np.asarray(pos_2d, dtype=np.float32).flatten(),
                     np.asarray(matrix, dtype=np.float32).flatten(),
                 ])
             else:
