@@ -492,7 +492,7 @@ def generate_coverage_2d_dashboard(df, output_dir, title):
         ("attrition_rate", "#d62728", "2. Agent Attrition (Crashes/ep)",     0, 4.8, ""),
         ("survival_rate",  "#9467bd", "3. Swarm Survival Rate (%)",          0, 115, "%"),
         ("avg_battery",    "#ff7f0e", "4. Fleet Battery (%)",                0, 115, "%"),
-        ("mean_reward",    "#1f77b4", "5. Cumulative Mission Return",        None, None, ""),
+        ("mean_reward",    "#1f77b4", "5. Mission Return (5× cells searched)", None, None, ""),
         ("smei",           "#e377c2", "6. SMEI (%)",                      0, 115, "%"),
     ]
 

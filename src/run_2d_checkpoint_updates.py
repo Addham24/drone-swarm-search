@@ -156,10 +156,16 @@ def main():
         os.path.join(base_2d, "run_manifest.json"),
         os.path.expanduser("~/Desktop/Results/2D-final/run_manifest.json"),
     ]
+    import subprocess
+    git_status = subprocess.check_output(["git", "status", "--porcelain"], cwd=SRC_DIR, text=True).strip()
+    if git_status:
+        raise RuntimeError(f"Git working tree is dirty! Please commit all changes:\n{git_status}")
+    real_commit_hash = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SRC_DIR, text=True).strip()
+
     manifest_data = {
         "task": "coverage",
         "dimension": "2D",
-        "git_commit_hash": "decd8ff8e50e2c8b292d8d774797341a3f8af048",
+        "git_commit_hash": real_commit_hash,
         "git_adapter_fix_commit": "c52c997adf074fcbea2bae50d34e1ba363ee0f16",
         "run_date": time.strftime("%Y-%m-%d %H:%M:%S"),
         "n_seeds": 100,

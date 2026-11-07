@@ -472,11 +472,7 @@ def evaluate_coverage_3d_episode(
     cov_mean = np.mean(cov_vals)
     surv_mean = np.mean([r["survival_rate"] for r in records])
     batt_mean = np.mean([r["avg_battery"] for r in records])
-
-    f_cov = max(0.001, cov_mean / 100.0)
-    f_surv = max(0.001, surv_mean / 100.0)
-    f_batt = max(0.001, batt_mean / 100.0)
-    smei = (f_cov**0.40 * f_surv**0.30 * f_batt**0.30) * 100.0
+    smei_mean = np.mean([r["smei"] for r in records])
 
     summary = {
         "coverage_rate": round(cov_mean, 2),
@@ -485,7 +481,7 @@ def evaluate_coverage_3d_episode(
         "attrition_rate": round(np.mean([r["crash_events"] for r in records]), 2),
         "survival_rate": round(surv_mean, 2),
         "avg_battery": round(batt_mean, 2),
-        "smei": round(smei, 2),
+        "smei": round(smei_mean, 2),
         "mean_reward": round(np.mean([r["mission_return"] for r in records]), 2),
         "mean_shaped_return": round(np.mean([r["shaped_return"] for r in records]), 2),
         "mean_charging_steps": round(np.mean([r["charging_steps"] for r in records]), 2),
@@ -567,7 +563,7 @@ def generate_coverage_3d_dashboard(df, output_dir, title):
         ("attrition_rate", "#d62728", "2. Agent Attrition (Crashes/ep)",     0, 4.8, ""),
         ("survival_rate",  "#9467bd", "3. Swarm Survival Rate (%)",          0, 115, "%"),
         ("avg_battery",    "#ff7f0e", "4. Fleet Battery (%)",                0, 115, "%"),
-        ("mean_reward",    "#1f77b4", "5. Cumulative Mission Return",        None, None, ""),
+        ("mean_reward",    "#1f77b4", "5. Mission Return (5× cells searched)", None, None, ""),
         ("smei",           "#e377c2", "6. SMEI (%)",                         0, 115, "%"),
     ]
 
