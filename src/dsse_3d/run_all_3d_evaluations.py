@@ -501,8 +501,6 @@ def evaluate_coverage_3d_episode(
 # ──────────────────────────────────────────────────────────────────────────────
 
 def generate_tracking_3d_dashboard(df, output_dir, title):
-    """Generate 8-panel tracking dashboard including 3D-specific metrics."""
-def generate_tracking_3d_dashboard(df, output_dir, title):
     """Generate 6-panel tracking dashboard."""
     os.makedirs(output_dir, exist_ok=True)
     plt.style.use("dark_background")
@@ -513,18 +511,23 @@ def generate_tracking_3d_dashboard(df, output_dir, title):
     x = np.arange(len(models))
 
     panels = [
-        ("Target Found Rate (%)",    "#2ca02c", "1. Target Intercept Rate (%)",    0, 115, "%"),
-        ("Mean Discovery Time",      "#1f77b4", "2. Mean Time-to-Intercept",       None, None, ""),
-        ("Attrition Rate",           "#d62728", "3. Agent Attrition (Crashes/ep)",  0, 4.8, ""),
-        ("Survival Rate (%)",        "#9467bd", "4. Swarm Survival Rate (%)",       0, 115, "%"),
-        ("Avg Battery (%)",          "#ff7f0e", "5. Fleet Battery (%)",             0, 115, "%"),
-        ("SMEI (%)",                 "#e377c2", "6. SMEI (%)",                      0, 115, "%"),
+        ("target_found_rate",  "#2ca02c", "1. Target Intercept Rate (%)",    0, 115, "%"),
+        ("mean_discovery_time","#1f77b4", "2. Mean Time-to-Intercept",       None, None, ""),
+        ("attrition_rate",     "#d62728", "3. Agent Attrition (Crashes/ep)",  0, 4.8, ""),
+        ("survival_rate",      "#9467bd", "4. Swarm Survival Rate (%)",       0, 115, "%"),
+        ("avg_battery",        "#ff7f0e", "5. Fleet Battery (%)",             0, 115, "%"),
+        ("smei",               "#e377c2", "6. SMEI (%)",                      0, 115, "%"),
     ]
 
     for idx, (col, color, panel_title, ylim_lo, ylim_hi, suffix) in enumerate(panels):
         row, col_idx = divmod(idx, 3)
         ax = axes[row, col_idx]
-        values = df[col].values if col in df.columns else np.zeros(len(models))
+        if col in df.columns:
+            values = df[col].values
+        else:
+            col_map = {c.lower().replace(" ", "_").replace("(%)", "").strip(): c for c in df.columns}
+            norm = col.lower().replace(" ", "_").replace("(%)", "").strip()
+            values = df[col_map[norm]].values if norm in col_map else np.zeros(len(models))
         bars = ax.bar(x, values, color=color, edgecolor="white")
         ax.set_title(panel_title, fontsize=10, fontweight="bold")
         ax.set_xticks(x)
@@ -560,18 +563,23 @@ def generate_coverage_3d_dashboard(df, output_dir, title):
     x = np.arange(len(models))
 
     panels = [
-        ("Coverage Rate (%)",  "#2ca02c", "1. Area Coverage (%)",               0, 115, "%"),
-        ("Attrition Rate",     "#d62728", "2. Agent Attrition (Crashes/ep)",     0, 4.8, ""),
-        ("Survival Rate (%)",  "#9467bd", "3. Swarm Survival Rate (%)",          0, 115, "%"),
-        ("Avg Battery (%)",    "#ff7f0e", "4. Fleet Battery (%)",                0, 115, "%"),
-        ("Mean Reward",        "#1f77b4", "5. Cumulative Mission Return",        None, None, ""),
-        ("SMEI (%)",           "#e377c2", "6. SMEI (%)",                         0, 115, "%"),
+        ("coverage_rate",  "#2ca02c", "1. Area Coverage (%)",               0, 115, "%"),
+        ("attrition_rate", "#d62728", "2. Agent Attrition (Crashes/ep)",     0, 4.8, ""),
+        ("survival_rate",  "#9467bd", "3. Swarm Survival Rate (%)",          0, 115, "%"),
+        ("avg_battery",    "#ff7f0e", "4. Fleet Battery (%)",                0, 115, "%"),
+        ("mean_reward",    "#1f77b4", "5. Cumulative Mission Return",        None, None, ""),
+        ("smei",           "#e377c2", "6. SMEI (%)",                         0, 115, "%"),
     ]
 
     for idx, (col, color, panel_title, ylim_lo, ylim_hi, suffix) in enumerate(panels):
         row, col_idx = divmod(idx, 3)
         ax = axes[row, col_idx]
-        values = df[col].values if col in df.columns else np.zeros(len(models))
+        if col in df.columns:
+            values = df[col].values
+        else:
+            col_map = {c.lower().replace(" ", "_").replace("(%)", "").strip(): c for c in df.columns}
+            norm = col.lower().replace(" ", "_").replace("(%)", "").strip()
+            values = df[col_map[norm]].values if norm in col_map else np.zeros(len(models))
         bars = ax.bar(x, values, color=color, edgecolor="white")
         ax.set_title(panel_title, fontsize=10, fontweight="bold")
         ax.set_xticks(x)
