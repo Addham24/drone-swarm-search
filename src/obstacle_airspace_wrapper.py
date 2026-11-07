@@ -5,7 +5,7 @@ Implements physical obstacle collision mechanics for DSSE drone swarm environmen
 
 Obstacle Physics:
   - Impassable Movement Blocking: Drones cannot enter obstacle cells.
-    Attempts to move into obstacle cell (y', x') result in position retention (y, x).
+    Attempts to move into obstacle cell (x', y') result in position retention (x, y).
   - Collision Penalty: -2.0 reward for attempting to enter an obstacle.
   - Observation Encoding: Obstacle cells are encoded as -1.0 in the probability matrix,
     signaling the CNN actor that the cell is an impassable wall.
@@ -135,12 +135,11 @@ class ObstacleAirspaceWrapper(BaseParallelWrapper):
                 if agent not in actions:
                     continue
                 if i < len(base_env.agents_positions):
-                    current_pos = base_env.agents_positions[i]  # (y, x) in DSSE
+                    current_pos = base_env.agents_positions[i]  # (x, y) = (col, row) in DSSE
                     new_pos = base_env.move_drone(current_pos, actions[agent])
                     
-                    # obstacle_coords stored as (x, y) matching DSSE convention
-                    # Note: move_drone returns (y', x'), so check (new_pos[1], new_pos[0]) matching (x, y)
-                    target_x, target_y = new_pos[1], new_pos[0]
+                    # obstacle_coords stored as (x, y) matching DSSE convention: (new_pos[0], new_pos[1])
+                    target_x, target_y = new_pos[0], new_pos[1]
                     if (target_x, target_y) in self.obstacle_coords:
                         target_h = int(self.obstacle_mask[target_y, target_x])
                         # If drone is at altitude Z > target_h, it flies safely above the building!

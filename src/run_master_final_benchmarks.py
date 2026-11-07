@@ -157,7 +157,13 @@ def worker_eval_3d(args):
     return model_name, summary, records
 
 
-def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
+def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obstacles_only=False, v3=False):
+    import subprocess
+    git_status = subprocess.check_output(["git", "status", "--porcelain"], cwd=SRC_DIR, text=True).strip()
+    if git_status:
+        raise RuntimeError(f"Git working tree is dirty! Please commit all changes before running benchmark:\n{git_status}")
+    real_commit_hash = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SRC_DIR, text=True).strip()
+
     is_3d = (dim.lower() == "3d")
     worker_fn = worker_eval_3d if is_3d else worker_eval_2d
     
@@ -165,16 +171,37 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
     from dsse_3d.run_all_3d_evaluations import generate_coverage_3d_dashboard
     gen_dash = generate_coverage_3d_dashboard if is_3d else generate_coverage_2d_dashboard
 
-    base_root = os.path.expanduser(f"~/Desktop/Results/{dim.upper()}-final")
+    folder_name = f"{dim.upper()}-final-v3" if v3 else f"{dim.upper()}-final"
+    base_root = os.path.expanduser(f"~/Desktop/Results/{folder_name}")
     base_out = os.path.join(base_root, "Coverage")
     os.makedirs(base_out, exist_ok=True)
+
+    configs_to_run = [c for c in ENV_CONFIGS if c["has_obstacles"]] if obstacles_only else ENV_CONFIGS
+    re_eval_scenarios = [
+        f"{c['tag']}/{f['tag']}"
+        for c in configs_to_run
+        for f in FAULT_REGIMES
+    ]
+    carried_over = [
+        f"{c['tag']}/{f['tag']}"
+        for c in ENV_CONFIGS if c not in configs_to_run
+        for f in FAULT_REGIMES
+    ]
+
+    t_suite_start = time.time()
+    t_start_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t_suite_start))
 
     manifest = {
         "task": "coverage",
         "dimension": dim.upper(),
-        "git_commit_hash": "decd8ff8e50e2c8b292d8d774797341a3f8af048",
+        "version": "v3" if v3 else "v2",
+        "git_commit_hash": real_commit_hash,
+        "git_status_clean": True,
         "git_adapter_fix_commit": "c52c997adf074fcbea2bae50d34e1ba363ee0f16",
-        "run_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "command": " ".join(sys.argv),
+        "run_start_time": t_start_str,
+        "run_end_time": None,
+        "elapsed_minutes": None,
         "n_seeds": n_seeds,
         "seeds": [1000, 1000 + n_seeds - 1],
         "free_cells": {
@@ -190,7 +217,9 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
             "I-DQN": "greedy_argmax",
         },
         "checkpoints": {name: path for name, _, _, path, _ in MODEL_SPECS},
-        "re_evaluated_scenarios": f"All 20 {dim.upper()} scenarios (all 12 models)",
+        "re_evaluated_scenarios_in_v3": re_eval_scenarios if v3 else f"All 20 {dim.upper()} scenarios (all 12 models)",
+        "carried_over_from_v2": carried_over if v3 else [],
+        "v2_carryover_commit": "decd8ff8e50e2c8b292d8d774797341a3f8af048 / b06a65c9 (2026-11-07 00:55:14)",
         "env_configs": ENV_CONFIGS,
         "fault_regimes": FAULT_REGIMES,
     }
@@ -207,18 +236,18 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
         log_f.write(msg + "\n")
         log_f.flush()
 
-    total_conditions = len(ENV_CONFIGS) * len(FAULT_REGIMES)
+    total_conditions = len(configs_to_run) * len(FAULT_REGIMES)
     cond_idx = 0
-    t_suite_start = time.time()
 
     log(f"\n{'='*80}")
-    log(f"  LAUNCHING {dim.upper()} COVERAGE MASTER BENCHMARK ({total_conditions} CONDITIONS)")
+    log(f"  LAUNCHING {dim.upper()} COVERAGE BENCHMARK ({total_conditions} CONDITIONS)")
     log(f"  Target Directory: {base_out}")
+    log(f"  Version: {'v3 (Obstacles Re-run)' if v3 else 'v2'}")
     log(f"  Workers: {max_workers} Parallel Processes")
     log(f"  Force Re-run: {force}")
     log(f"{'='*80}\n")
 
-    for env_cfg in ENV_CONFIGS:
+    for env_cfg in configs_to_run:
         obs_mask = resolve_obstacle_mask(env_cfg["grid_size"]) if env_cfg["has_obstacles"] else None
 
         for fault_cfg in FAULT_REGIMES:
@@ -269,25 +298,35 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False):
             mappo_cov = df_summary[df_summary["Model"] == "MAPPO SelfHeal"][cov_col].values[0]
             log(f"    [✓] Done in {el_cond:.1f}s | RSPO SH: {rspo_cov:.1f}% | MAPPO SH: {mappo_cov:.1f}%")
 
-    total_el = (time.time() - t_suite_start) / 60.0
+    t_end = time.time()
+    t_end_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t_end))
+    total_el = (t_end - t_suite_start) / 60.0
+    manifest["run_end_time"] = t_end_str
+    manifest["elapsed_minutes"] = round(total_el, 2)
+    with open(os.path.join(base_out, "run_manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+    with open(os.path.join(base_root, "run_manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+
     log(f"\n{'='*80}")
     log(f"  {dim.upper()} MASTER BENCHMARK COMPLETE IN {total_el:.1f} MINUTES!")
-    log(f"  All 20 Conditions & Dashboards Saved to: {base_out}")
+    log(f"  Saved to: {base_out}")
     log(f"{'='*80}\n")
     log_f.close()
 
 
-def run_post_processing():
+def run_post_processing(v3=False):
     import subprocess
     import glob
     import zipfile
     import shutil
     print(f"\n{'='*80}")
-    print("  RUNNING POST-PROCESSING: DEGRADATION CURVES, RQ FIGURES & ZIP ARCHIVE")
+    print(f"  RUNNING POST-PROCESSING: DEGRADATION CURVES, RQ FIGURES & ZIP ARCHIVE ({'v3' if v3 else 'v2'})")
     print(f"{'='*80}\n")
 
-    b2d = os.path.expanduser("~/Desktop/Results/2D-final")
-    b3d = os.path.expanduser("~/Desktop/Results/3D-final")
+    suffix = "-v3" if v3 else ""
+    b2d = os.path.expanduser(f"~/Desktop/Results/2D-final{suffix}")
+    b3d = os.path.expanduser(f"~/Desktop/Results/3D-final{suffix}")
 
     # 1. Copy run_manifest.json to root of 2D-final and 3D-final
     for b in [b2d, b3d]:
@@ -298,31 +337,37 @@ def run_post_processing():
 
     # 2. Degradation curves
     if os.path.exists(os.path.join(b2d, "Coverage")):
-        print("  [▶] Generating 2D publication degradation curves...")
+        print(f"  [▶] Generating 2D publication degradation curves ({b2d})...")
         subprocess.run([sys.executable, os.path.join(SRC_DIR, "generate_2d_degradation_curves.py"), "--base_dir", b2d], check=False)
 
     if os.path.exists(os.path.join(b3d, "Coverage")):
-        print("  [▶] Generating 3D publication degradation curves...")
+        print(f"  [▶] Generating 3D publication degradation curves ({b3d})...")
         subprocess.run([sys.executable, os.path.join(SRC_DIR, "dsse_3d/generate_degradation_curves.py"), "--base_dir", b3d], check=False)
 
     # 3. Master RQ figures
     print("  [▶] Generating All Research Question (RQ1, RQ3, RQ4) Visualizations...")
     subprocess.run([sys.executable, os.path.join(SRC_DIR, "generate_all_final_visualizations.py")], check=False)
 
-    # 4. Build master ZIP archive for the user (v2)
-    zip_path = os.path.expanduser("~/Desktop/Results/final_evaluation_results_v2.zip")
+    # 4. Build master ZIP archive for the user
+    zip_name = "final_evaluation_results_v3.zip" if v3 else "final_evaluation_results_v2.zip"
+    zip_path = os.path.expanduser(f"~/Desktop/Results/{zip_name}")
     print(f"  [▶] Building master ZIP archive: {zip_path} ...")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root_dir in [b2d, b3d]:
             if not os.path.exists(root_dir):
                 continue
-            base_folder = os.path.basename(root_dir)
             for dirpath, _, filenames in os.walk(root_dir):
                 for f in filenames:
-                    if f.endswith((".csv", ".json", ".txt", ".png")):
+                    if f.endswith((".csv", ".json", ".txt", ".png", ".md")):
                         full_f = os.path.join(dirpath, f)
                         rel_path = os.path.relpath(full_f, os.path.dirname(root_dir))
                         zipf.write(full_f, rel_path)
+        # Also include any root files if present
+        for extra in ["OBSTACLE_FIX_REPORT.md", "figure_2_3_3d_visualizer_urban_obstacles.png",
+                      "figure_2_3_3d_visualizer_standard.png", "figure_2_3_3d_visualizer_composite.png"]:
+            extra_p = os.path.expanduser(f"~/Desktop/Results/{extra}")
+            if os.path.exists(extra_p):
+                zipf.write(extra_p, extra)
     print(f"  [✓] Master ZIP archive created successfully at: {zip_path}")
 
 
@@ -332,10 +377,13 @@ if __name__ == "__main__":
     parser.add_argument("--n_seeds", type=int, default=100)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--force", action="store_true", help="Force overwrite existing benchmarks")
+    parser.add_argument("--obstacles_only", action="store_true", help="Only run obstacle scenarios")
+    parser.add_argument("--v3", action="store_true", help="Output to v3 results directories")
     args = parser.parse_args()
 
     dims_to_run = ["2d", "3d"] if args.dim == "both" else [args.dim]
     for d in dims_to_run:
-        run_benchmark_suite(dim=d, n_seeds=args.n_seeds, max_workers=args.workers, force=args.force)
+        run_benchmark_suite(dim=d, n_seeds=args.n_seeds, max_workers=args.workers, force=args.force,
+                            obstacles_only=args.obstacles_only, v3=args.v3)
 
-    run_post_processing()
+    run_post_processing(v3=args.v3)
