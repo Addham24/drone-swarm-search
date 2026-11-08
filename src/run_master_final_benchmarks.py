@@ -100,14 +100,19 @@ def resolve_obstacle_mask(grid_size):
 
 
 def worker_eval_2d(args):
-    model_name, fw, cls_name, path, is_self_heal, env_cfg, fault_prob, n_seeds, obs_mask = args
+    if len(args) == 10:
+        model_name, fw, cls_name, path, is_self_heal, env_cfg, fault_prob, n_seeds, obs_mask, cssa_mode = args
+    else:
+        model_name, fw, cls_name, path, is_self_heal, env_cfg, fault_prob, n_seeds, obs_mask = args
+        cssa_mode = "trained"
     import sys, os, torch as th, numpy as np
     SRC_DIR = '/Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src'
     sys.path.insert(0, SRC_DIR)
     th.set_num_threads(1)
 
     from dsse_3d.policy_loaders import load_rllib_ppo_policy, load_rllib_dqn_policy, load_epymarl_policy_strict
-    from train_rspo_v2_vanilla import RSPOModelV2
+    from train_rspo_v2_vanilla import RSPOModelV2, set_cssa_mode
+    set_cssa_mode(cssa_mode)
     from train_mappo_vanilla import CNNModel as MAPPOModelVanilla
     from run_all_2d_evaluations import evaluate_coverage_2d_episode
 
@@ -121,22 +126,32 @@ def worker_eval_2d(args):
     elif fw == 'epymarl':
         policy_fn = load_epymarl_policy_strict(path)
 
+    if cls_name == 'RSPOModelV2':
+        RSPOModelV2.reset_step_tracker()
+
     summary, records = evaluate_coverage_2d_episode(policy_fn, env_cfg, fault_prob, is_self_heal, n_seeds, obs_mask)
     summary['Model'] = model_name
+    if cls_name == 'RSPOModelV2':
+        summary['cssa_active_pct'] = round(RSPOModelV2.get_cssa_activity_share() * 100.0, 2)
     for r in records:
         r['Model'] = model_name
     return model_name, summary, records
 
 
 def worker_eval_3d(args):
-    model_name, fw, cls_name, path, is_self_heal, env_cfg, fault_prob, n_seeds, obs_mask = args
+    if len(args) == 10:
+        model_name, fw, cls_name, path, is_self_heal, env_cfg, fault_prob, n_seeds, obs_mask, cssa_mode = args
+    else:
+        model_name, fw, cls_name, path, is_self_heal, env_cfg, fault_prob, n_seeds, obs_mask = args
+        cssa_mode = "trained"
     import sys, os, torch as th, numpy as np
     SRC_DIR = '/Users/AdhamMotawi/Desktop/dsse_run/drone-swarm-search-algorithms/src'
     sys.path.insert(0, SRC_DIR)
     th.set_num_threads(1)
 
     from dsse_3d.policy_loaders import load_rllib_ppo_policy, load_rllib_dqn_policy, load_epymarl_policy_strict
-    from train_rspo_v2_vanilla import RSPOModelV2
+    from train_rspo_v2_vanilla import RSPOModelV2, set_cssa_mode
+    set_cssa_mode(cssa_mode)
     from train_mappo_vanilla import CNNModel as MAPPOModelVanilla
     from dsse_3d.run_all_3d_evaluations import evaluate_coverage_3d_episode
 
@@ -150,16 +165,22 @@ def worker_eval_3d(args):
     elif fw == 'epymarl':
         policy_fn = load_epymarl_policy_strict(path)
 
+    if cls_name == 'RSPOModelV2':
+        RSPOModelV2.reset_step_tracker()
+
     summary, records = evaluate_coverage_3d_episode(policy_fn, env_cfg, fault_prob, is_self_heal, n_seeds, obs_mask)
     summary['Model'] = model_name
+    if cls_name == 'RSPOModelV2':
+        summary['cssa_active_pct'] = round(RSPOModelV2.get_cssa_activity_share() * 100.0, 2)
     for r in records:
         r['Model'] = model_name
     return model_name, summary, records
 
 
-def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obstacles_only=False, v3=False):
+def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obstacles_only=False, v3=False,
+                        cssa_mode="trained", models=None, output_base=None):
     import subprocess
-    git_status = subprocess.check_output(["git", "status", "--porcelain"], cwd=SRC_DIR, text=True).strip()
+    git_status = subprocess.check_output(["git", "status", "--porcelain", "-uno"], cwd=SRC_DIR, text=True).strip()
     if git_status:
         raise RuntimeError(f"Git working tree is dirty! Please commit all changes before running benchmark:\n{git_status}")
     real_commit_hash = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SRC_DIR, text=True).strip()
@@ -171,10 +192,23 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
     from dsse_3d.run_all_3d_evaluations import generate_coverage_3d_dashboard
     gen_dash = generate_coverage_3d_dashboard if is_3d else generate_coverage_2d_dashboard
 
-    folder_name = f"{dim.upper()}-final-v3" if v3 else f"{dim.upper()}-final"
-    base_root = os.path.expanduser(f"~/Desktop/Results/{folder_name}")
+    if output_base is not None:
+        base_root = os.path.expanduser(os.path.join(output_base, f"{dim.upper()}-final"))
+    else:
+        folder_name = f"{dim.upper()}-final-v3" if v3 else f"{dim.upper()}-final"
+        base_root = os.path.expanduser(f"~/Desktop/Results/{folder_name}")
     base_out = os.path.join(base_root, "Coverage")
     os.makedirs(base_out, exist_ok=True)
+
+    # Filter models if requested
+    if models is not None:
+        if isinstance(models, str):
+            selected_models = [m.strip() for m in models.split(",") if m.strip()]
+        else:
+            selected_models = list(models)
+        models_to_run = [m for m in MODEL_SPECS if m[0] in selected_models]
+    else:
+        models_to_run = MODEL_SPECS
 
     configs_to_run = [c for c in ENV_CONFIGS if c["has_obstacles"]] if obstacles_only else ENV_CONFIGS
     re_eval_scenarios = [
@@ -204,6 +238,8 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
         "elapsed_minutes": None,
         "n_seeds": n_seeds,
         "seeds": [1000, 1000 + n_seeds - 1],
+        "cssa_mode": cssa_mode,
+        "models_evaluated": [m[0] for m in models_to_run],
         "free_cells": {
             "25x25_Standard": 625,
             "25x25_Obstacles": 529,
@@ -216,7 +252,7 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
             "EPyMARL": "greedy_argmax",
             "I-DQN": "greedy_argmax",
         },
-        "checkpoints": {name: path for name, _, _, path, _ in MODEL_SPECS},
+        "checkpoints": {name: path for name, _, _, path, _ in models_to_run},
         "re_evaluated_scenarios_in_v3": re_eval_scenarios if v3 else f"All 20 {dim.upper()} scenarios (all 12 models)",
         "carried_over_from_v2": carried_over if v3 else [],
         "v2_carryover_commit": "decd8ff8e50e2c8b292d8d774797341a3f8af048 / b06a65c9 (2026-11-07 00:55:14)",
@@ -242,6 +278,8 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
     log(f"\n{'='*80}")
     log(f"  LAUNCHING {dim.upper()} COVERAGE BENCHMARK ({total_conditions} CONDITIONS)")
     log(f"  Target Directory: {base_out}")
+    log(f"  CSSA Mode: {cssa_mode}")
+    log(f"  Models: {', '.join([m[0] for m in models_to_run])}")
     log(f"  Version: {'v3 (Obstacles Re-run)' if v3 else 'v2'}")
     log(f"  Workers: {max_workers} Parallel Processes")
     log(f"  Force Re-run: {force}")
@@ -266,8 +304,8 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
             log(f"[{cond_idx:02d}/{total_conditions:02d}] {dim.upper()} {env_cfg['label']} | {fault_cfg['label']} ...")
 
             tasks = []
-            for name, fw, cls_name, path, is_self_heal in MODEL_SPECS:
-                tasks.append((name, fw, cls_name, path, is_self_heal, env_cfg, fault_cfg["fault_prob"], n_seeds, obs_mask))
+            for name, fw, cls_name, path, is_self_heal in models_to_run:
+                tasks.append((name, fw, cls_name, path, is_self_heal, env_cfg, fault_cfg["fault_prob"], n_seeds, obs_mask, cssa_mode))
 
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 results = list(executor.map(worker_fn, tasks))
@@ -276,7 +314,7 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
             # Maintain exact model order
             summary_list = []
             all_raw = []
-            for name, _, _, _, _ in MODEL_SPECS:
+            for name, _, _, _, _ in models_to_run:
                 s, recs = results_dict[name]
                 summary_list.append(s)
                 all_raw.extend(recs)
@@ -289,13 +327,15 @@ def run_benchmark_suite(dim="2d", n_seeds=100, max_workers=6, force=False, obsta
             df_summary.to_csv(summary_path, index=False)
 
             # Generate Dashboard PNG
-            dash_title = f"DSSE-{dim.upper()} Coverage (Final Synchronized) — {env_cfg['label']} ({fault_cfg['label']})"
+            dash_title = f"DSSE-{dim.upper()} Coverage (CSSA {cssa_mode}) — {env_cfg['label']} ({fault_cfg['label']})"
             gen_dash(df_summary, out_dir, dash_title)
 
             el_cond = time.time() - cond_start
             cov_col = "coverage_rate" if "coverage_rate" in df_summary.columns else "Coverage Rate (%)"
-            rspo_cov = df_summary[df_summary["Model"] == "RSPO SelfHeal"][cov_col].values[0]
-            mappo_cov = df_summary[df_summary["Model"] == "MAPPO SelfHeal"][cov_col].values[0]
+            rspo_rows = df_summary[df_summary["Model"] == "RSPO SelfHeal"]
+            rspo_cov = rspo_rows[cov_col].values[0] if len(rspo_rows) > 0 else 0.0
+            mappo_rows = df_summary[df_summary["Model"] == "MAPPO SelfHeal"]
+            mappo_cov = mappo_rows[cov_col].values[0] if len(mappo_rows) > 0 else 0.0
             log(f"    [✓] Done in {el_cond:.1f}s | RSPO SH: {rspo_cov:.1f}% | MAPPO SH: {mappo_cov:.1f}%")
 
     t_end = time.time()
@@ -379,11 +419,21 @@ if __name__ == "__main__":
     parser.add_argument("--force", action="store_true", help="Force overwrite existing benchmarks")
     parser.add_argument("--obstacles_only", action="store_true", help="Only run obstacle scenarios")
     parser.add_argument("--v3", action="store_true", help="Output to v3 results directories")
+    parser.add_argument("--cssa_mode", type=str, default="trained", choices=["trained", "off", "corrected"],
+                        help="CSSA attention mode for RSPO models (trained, off, corrected)")
+    parser.add_argument("--models", type=str, default=None,
+                        help="Comma-separated list of models to evaluate (e.g. 'RSPO Vanilla,RSPO SelfHeal')")
+    parser.add_argument("--output_base", type=str, default=None,
+                        help="Custom base directory for results output")
+    parser.add_argument("--skip_post_processing", action="store_true",
+                        help="Skip multi-model post-processing visualizations")
     args = parser.parse_args()
 
     dims_to_run = ["2d", "3d"] if args.dim == "both" else [args.dim]
     for d in dims_to_run:
         run_benchmark_suite(dim=d, n_seeds=args.n_seeds, max_workers=args.workers, force=args.force,
-                            obstacles_only=args.obstacles_only, v3=args.v3)
+                            obstacles_only=args.obstacles_only, v3=args.v3,
+                            cssa_mode=args.cssa_mode, models=args.models, output_base=args.output_base)
 
-    run_post_processing(v3=args.v3)
+    if not args.skip_post_processing and args.models is None:
+        run_post_processing(v3=args.v3)

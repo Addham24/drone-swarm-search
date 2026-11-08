@@ -77,6 +77,22 @@ class RSPOBatteryMetricsCallback(DefaultCallbacks):
                 break
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# CSSA Attention Switch (Inference-Time Diagnostic / Ablation)
+# ──────────────────────────────────────────────────────────────────────────────
+CSSA_MODE = "trained"  # Options: "trained" (default), "off", "corrected"
+
+def set_cssa_mode(mode: str):
+    global CSSA_MODE
+    mode = str(mode).lower()
+    if mode not in ("trained", "off", "corrected"):
+        raise ValueError(f"Invalid CSSA mode: {mode}. Must be 'trained', 'off', or 'corrected'.")
+    CSSA_MODE = mode
+
+def get_cssa_mode() -> str:
+    return CSSA_MODE
+
+
 class RSPOModelV2(TorchModelV2, nn.Module):
     """
     RSPO V2 Neural Network Model
@@ -87,6 +103,20 @@ class RSPOModelV2(TorchModelV2, nn.Module):
       3. Dual-Objective Value Decomposition (DOVD): Value heads + custom_loss auxiliary supervision
       4. Resilience-Adaptive Clipping (RAC): Per-sample eps_t state-conditioned clip parameter
     """
+
+    total_steps_evaluated = 0
+    crash_active_steps_evaluated = 0
+
+    @classmethod
+    def reset_step_tracker(cls):
+        cls.total_steps_evaluated = 0
+        cls.crash_active_steps_evaluated = 0
+
+    @classmethod
+    def get_cssa_activity_share(cls):
+        if cls.total_steps_evaluated > 0:
+            return cls.crash_active_steps_evaluated / cls.total_steps_evaluated
+        return 0.0
 
     def __init__(
         self,
@@ -101,6 +131,7 @@ class RSPOModelV2(TorchModelV2, nn.Module):
             self, obs_space, act_space, num_outputs, model_config, name, **kw
         )
         nn.Module.__init__(self)
+        self.cssa_mode = None
 
         def get_flatten_size(grid_size):
             x = (grid_size - 2) // 2
@@ -219,6 +250,13 @@ class RSPOModelV2(TorchModelV2, nn.Module):
         """
         Computes Crash-Sector Spatial Attention (CSSA) heatmap on CNN feature maps [B, 32, 5, 5].
         """
+        mode = getattr(self, "cssa_mode", None) or CSSA_MODE
+
+        # 'off': CSSA has no effect, feature map passes through unmodulated (F~ = F)
+        # exactly as the code already does when no crash is active (residual branch identity)
+        if mode == "off":
+            return cnn_features
+
         B = input_positions.shape[0]
         device = input_positions.device
 
@@ -227,8 +265,14 @@ class RSPOModelV2(TorchModelV2, nn.Module):
         dead_mask = 1.0 - alive_mask             # [B, 4]
 
         # Feature map coordinates (5x5 spatial grid)
-        crash_fy = crash_coords[:, :, 0] * 5.0  # [B, 4]
-        crash_fx = crash_coords[:, :, 1] * 5.0  # [B, 4]
+        if mode == "corrected":
+            # crash_r = input_positions[:, 13:20:2] (y = row)
+            # crash_c = input_positions[:, 12:20:2] (x = column)
+            crash_fy = crash_coords[:, :, 1] * 5.0  # y = row
+            crash_fx = crash_coords[:, :, 0] * 5.0  # x = column
+        else:  # "trained" (current code, unchanged)
+            crash_fy = crash_coords[:, :, 0] * 5.0  # [B, 4] (actually x / col)
+            crash_fx = crash_coords[:, :, 1] * 5.0  # [B, 4] (actually y / row)
 
         grid_y = torch.linspace(0.5, 4.5, 5, device=device).view(1, 1, 5, 1)
         grid_x = torch.linspace(0.5, 4.5, 5, device=device).view(1, 1, 1, 5)
@@ -248,12 +292,55 @@ class RSPOModelV2(TorchModelV2, nn.Module):
         cnn_attended = cnn_features + crash_active.view(B, 1, 1, 1) * (cnn_features * attn_map)
         return cnn_attended
 
+    def get_cssa_maps(self, cnn_features, input_positions, alive_mask, crash_active, mode=None):
+        """Diagnostic helper for Unit Check 2b returning (m_crash, attn_map, modulation)."""
+        mode = mode or getattr(self, "cssa_mode", None) or CSSA_MODE
+        B = input_positions.shape[0]
+        device = input_positions.device
+
+        if mode == "off":
+            m_crash = torch.zeros((B, 1, 5, 5), device=device)
+            attn_map = torch.zeros((B, 32, 5, 5), device=device)
+            modulation = torch.ones((B, 1, 5, 5), device=device)
+            return m_crash, attn_map, modulation
+
+        crash_part = input_positions[:, 12:20]
+        crash_coords = crash_part.view(B, 4, 2)
+        dead_mask = 1.0 - alive_mask
+
+        if mode == "corrected":
+            crash_fy = crash_coords[:, :, 1] * 5.0
+            crash_fx = crash_coords[:, :, 0] * 5.0
+        else:
+            crash_fy = crash_coords[:, :, 0] * 5.0
+            crash_fx = crash_coords[:, :, 1] * 5.0
+
+        grid_y = torch.linspace(0.5, 4.5, 5, device=device).view(1, 1, 5, 1)
+        grid_x = torch.linspace(0.5, 4.5, 5, device=device).view(1, 1, 1, 5)
+
+        fy = crash_fy.view(B, 4, 1, 1)
+        fx = crash_fx.view(B, 4, 1, 1)
+
+        dist_sq = (grid_y - fy) ** 2 + (grid_x - fx) ** 2
+        gauss = torch.exp(-dist_sq / 2.88)
+        masked_gauss = gauss * dead_mask.view(B, 4, 1, 1)
+        m_crash = masked_gauss.sum(dim=1, keepdim=True)
+
+        concat_feat = torch.cat([cnn_features, m_crash], dim=1)
+        attn_map = torch.sigmoid(self.cssa_conv(concat_feat))
+        modulation = 1.0 + crash_active.view(B, 1, 1, 1) * attn_map
+        return m_crash, attn_map, modulation
+
     def forward(self, input_dict, state, seq_lens):
         input_positions = input_dict["obs"][0].float()
         input_matrix = input_dict["obs"][1].float().unsqueeze(1)
 
         # 1. Extract Fleet Health State Vector & FHE
         fleet_health_raw, alive_mask, crash_active = self._extract_fleet_health_state(input_positions)
+        if not self.training:
+            B = input_positions.shape[0]
+            RSPOModelV2.total_steps_evaluated += B
+            RSPOModelV2.crash_active_steps_evaluated += int((crash_active > 0).sum().item())
         h_t = self.fhe_encoder(fleet_health_raw)  # [B, 32]
 
         # 2. CNN Backbone & CSSA Attention
