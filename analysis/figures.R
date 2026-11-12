@@ -34,32 +34,42 @@ mtext("Filled = Holm-adjusted p < 0.05 (also marked *); open = not significant. 
 dev.off()
 
 # ---------- Figure 3.3: RQ2 SMEI degradation ----------
+# Style follows src/generate_2d_degradation_curves.py: every model keeps one colour, marker and line style
+# (solid = self-healing; dashed, dash-dot or dotted = vanilla); x in units of 1e-4. Six panels share a 0-100
+# scale. The two 2D obstacle panels use 0-40, marked by a shaded background and noted in their titles,
+# because no model reaches 37 there.
 S <- read.csv(file.path(out, "scenario_summary.csv"))
-mlab <- c("25x25 standard","25x25 obstacles","50x50 standard","50x50 obstacles")
-hl <- c("RSPO SelfHeal","RSPO Vanilla","MAPPO SelfHeal","MAPPO Vanilla","QMIX SelfHeal")
-allm <- unique(S$Model)
-png(file.path(out, "fig_rq2_smei_degradation.png"), width = 3200, height = 1900, res = 300, type = "cairo")
-par(mfrow = c(2,4), mar = c(3.2,3.2,2.2,0.6), oma = c(0,1.2,3.2,0), mgp = c(2,0.55,0), tcl = -0.25,
+mlab <- c("25\u00d725 Standard","25\u00d725 Obstacles","50\u00d750 Standard","50\u00d750 Obstacles")
+mods <- c("RSPO SelfHeal","RSPO Vanilla","MAPPO SelfHeal","MAPPO Vanilla","QMIX SelfHeal","QMIX Vanilla",
+          "MAA2C SelfHeal","MAA2C Vanilla","COMA SelfHeal","COMA Vanilla","I-DQN SelfHeal","I-DQN Vanilla")
+mcol <- c("#1f77b4","#1f77b4","#ff7f0e","#fdae6b","#2ca02c","#74c476","#d62728","#fd8d3c","#9467bd","#9e9ac8","#8c564b","#c49c94")
+mpch <- c(16,15,17,25,18,23,3,4,8,1,15,16)
+mlty <- c(1,2,1,4,1,3,1,2,1,3,1,4)
+names(mcol) <- names(mpch) <- names(mlty) <- mods
+shade <- "#f2f2ee"
+png(file.path(out, "fig_rq2_smei_degradation.png"), width = 3600, height = 2050, res = 300, type = "cairo")
+par(mfrow = c(2,4), mar = c(3.2,3.2,2.2,0.6), oma = c(0,1.2,3.4,0), mgp = c(2,0.55,0), tcl = -0.25,
     family = "sans", col.axis = quiet, col.lab = ink, fg = quiet, las = 1, cex.axis = 0.8)
 for (d in c("2D","3D")) for (j in seq_along(maps)) {
-  plot(NA, xlim = c(0, 0.001), ylim = c(0, 90), xaxt = "n", yaxt = "n", xlab = "", ylab = "", bty = "n")
-  abline(h = seq(0, 90, 15), col = grid, lwd = 0.8)
-  axis(1, at = ps, labels = c("0",".00025",".0005",".00075",".001"), lwd = 0, lwd.ticks = 0.6, cex.axis = 0.7)
-  axis(2, at = seq(0, 90, 30), lwd = 0, cex.axis = 0.75)
-  mtext(sprintf("%s: %s", d, mlab[j]), side = 3, line = 0.5, cex = 0.72, col = ink, font = 2, adj = 0)
-  for (m in setdiff(allm, hl)) { z <- S[S$dim==d & S$map==maps[j] & S$Model==m,]; z <- z[order(z$p),]
-    lines(z$p, z$smei, col = grey, lwd = 0.9, lty = ifelse(isSH(m),1,2)) }
-  for (m in rev(hl)) { z <- S[S$dim==d & S$map==maps[j] & S$Model==m,]; z <- z[order(z$p),]
-    lines(z$p, z$smei, col = col[[alg(m)]], lwd = 2, lty = ifelse(isSH(m),1,2))
-    points(z$p, z$smei, pch = ifelse(isSH(m),19,21), bg = "white", col = col[[alg(m)]], cex = 0.75, lwd = 1.3) }
+  zoom <- d == "2D" && grepl("Obstacles", maps[j])
+  ymax <- if (zoom) 40 else 100; ystep <- if (zoom) 10 else 20
+  plot(NA, xlim = c(0, 10), ylim = c(0, ymax), xaxt = "n", yaxt = "n", xlab = "", ylab = "", bty = "o")
+  if (zoom) { u <- par("usr"); rect(u[1], u[3], u[2], u[4], col = shade, border = NA); box(col = quiet) }
+  abline(h = seq(0, ymax, ystep), v = seq(0, 10, 2.5), col = grid, lwd = 0.8, lty = 2)
+  axis(1, at = seq(0, 10, 2.5), labels = c("0.0","2.5","5.0","7.5","10.0"), lwd = 0, lwd.ticks = 0.6, cex.axis = 0.75)
+  axis(2, at = seq(0, ymax, ystep), lwd = 0, cex.axis = 0.75)
+  mtext(sprintf("%s: %s%s", d, mlab[j], if (zoom) "  (y-axis 0\u201340)" else ""), side = 3, line = 0.5, cex = 0.72, col = ink, font = 2)
+  z <- S[S$dim == d & S$map == maps[j], ]
+  for (m in rev(mods)) { q <- z[z$Model == m, ]; q <- q[order(q$p), ]
+    lines(q$p * 1e4, q$smei, col = mcol[[m]], lwd = ifelse(grepl("RSPO", m), 2.2, 1.5), lty = mlty[[m]])
+    points(q$p * 1e4, q$smei, pch = mpch[[m]], col = mcol[[m]], bg = mcol[[m]], cex = 0.8) }
   if (j == 1) mtext("Mean SMEI (%)", side = 2, line = 2.1, cex = 0.65, col = ink, las = 0)
-  if (d == "3D") mtext("Fault probability p (per drone, per step)", side = 1, line = 2.0, cex = 0.55, col = quiet)
+  if (d == "3D") mtext("Fault probability (\u00d710\u207b\u2074 per drone, per step)", side = 1, line = 2.0, cex = 0.55, col = quiet)
 }
 par(fig = c(0,1,0,1), oma = c(0,0,0,0), mar = c(0,0,0,0), new = TRUE); plot.new()
-legend("top", inset = 0.005, ncol = 6, bty = "n", cex = 0.72, text.col = ink, text.width = c(0.11,0.09,0.12,0.1,0.11,0.1),
-       legend = c("RSPO self-healing","RSPO vanilla","MAPPO self-healing","MAPPO vanilla","QMIX self-healing","Other 7 models"),
-       col = c(col["RSPO"],col["RSPO"],col["MAPPO"],col["MAPPO"],col["QMIX"],grey),
-       lty = c(1,2,1,2,1,1), lwd = c(2,2,2,2,2,1), pch = c(19,21,19,21,19,NA), pt.bg = "white", seg.len = 2.2)
+legend("top", inset = 0.004, ncol = 6, bty = "n", cex = 0.62, text.col = ink, x.intersp = 0.6, text.width = 0.12,
+       legend = mods, col = mcol, lty = mlty, lwd = ifelse(grepl("RSPO", mods), 2.2, 1.5),
+       pch = mpch, pt.bg = mcol, seg.len = 4)
 dev.off()
 
 # ---------- Figure 3.4: coverage heat map, model x map (mean over fault rates) ----------
