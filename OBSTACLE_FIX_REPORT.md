@@ -1,6 +1,6 @@
 # DSSE Obstacle Coordinate Transposition Bug Fix & Verification Report
 
-**Author / Runner**: Automated Agentic Suite  
+**Author / Runner**: Adham Motawi  
 **Date**: November 7, 2026  
 **Git Branch**: `fix/obstacle-transpose`  
 **Base Commit**: `91ddba5` / `c52c997`  

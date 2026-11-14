@@ -14,7 +14,6 @@ Saves to:
   ~/Desktop/Results/2D-mappo/rq1_self_healing_ablation_2d.png
   ~/Desktop/Results/3D-mappo/rq1_self_healing_ablation_3d.png
   ~/Desktop/Results/rq1_self_healing_ablation_unified.png
-  and copied to Antigravity Artifacts directory.
 """
 
 import os
@@ -30,7 +29,7 @@ import matplotlib.patches as patches
 OUT_2D = os.path.expanduser("~/Desktop/Results/2D-mappo")
 OUT_3D = os.path.expanduser("~/Desktop/Results/3D-mappo")
 OUT_GEN = os.path.expanduser("~/Desktop/Results")
-ARTIFACT_DIR = "/Users/AdhamMotawi/.gemini/antigravity-ide/brain/261d090f-67ca-4f3a-8220-dd983c502482"
+ARTIFACT_DIR = os.environ.get("ARTIFACT_DIR", None)
 
 # Import data loader from generate_rq_visualizations
 from generate_rq_visualizations import load_all_fault_dataset
@@ -363,7 +362,9 @@ def generate_rq1_unified():
 
 
 def copy_to_artifacts(paths):
-    """Copy generated plots to antigravity artifact directory."""
+    """Optionally copy generated plots if ARTIFACT_DIR is defined."""
+    if not ARTIFACT_DIR or not os.path.exists(ARTIFACT_DIR):
+        return
     for src in paths:
         if os.path.exists(src):
             fname = os.path.basename(src)

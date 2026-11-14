@@ -7,8 +7,7 @@ from matplotlib.lines import Line2D
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_CACHE = os.path.join(SCRIPT_DIR, "coverage_curves_cache.json")
-FALLBACK_CACHE = "/Users/AdhamMotawi/.gemini/antigravity-ide/brain/261d090f-67ca-4f3a-8220-dd983c502482/scratch/coverage_curves_cache.json"
-CACHE_FILE = LOCAL_CACHE if os.path.exists(LOCAL_CACHE) else FALLBACK_CACHE
+CACHE_FILE = LOCAL_CACHE
 
 # Color Palette: Each algorithm family has ONE unique dedicated hue
 # Solid (-) = Self-Healing | Dashed (--) = Vanilla
@@ -112,7 +111,7 @@ def main():
         "figure.titlesize": 15
     })
     
-    art_dir = "/Users/AdhamMotawi/.gemini/antigravity-ide/brain/261d090f-67ca-4f3a-8220-dd983c502482"
+    art_dir = os.environ.get("ARTIFACT_DIR", None)
     desk_dir = "/Users/AdhamMotawi/Desktop/Results"
     
     # =========================================================================
@@ -177,7 +176,7 @@ def main():
     plt.savefig(out_comb_desk, dpi=300)
     plt.savefig(out_comb_desk_fresh, dpi=300)
 
-    if os.path.isdir(art_dir):
+    if art_dir and os.path.isdir(art_dir):
         plt.savefig(os.path.join(art_dir, "coverage_learning_curves_combined.png"), dpi=300)
         plt.savefig(os.path.join(art_dir, "coverage_learning_curves_combined_identical_colors.png"), dpi=300)
     
@@ -228,17 +227,16 @@ def main():
     
     plt.tight_layout(rect=[0, 0.03, 1, 0.93])
     
-    out_split_art = os.path.join(art_dir, "coverage_learning_curves_split.png")
     out_split_desk = os.path.join(desk_dir, "coverage_learning_curves_split.png")
-    out_split_art_fresh = os.path.join(art_dir, "coverage_learning_curves_split_identical_colors.png")
     out_split_desk_fresh = os.path.join(desk_dir, "coverage_learning_curves_split_identical_colors.png")
     
-    plt.savefig(out_split_art, dpi=300)
     plt.savefig(out_split_desk, dpi=300)
-    plt.savefig(out_split_art_fresh, dpi=300)
     plt.savefig(out_split_desk_fresh, dpi=300)
+    if art_dir and os.path.isdir(art_dir):
+        plt.savefig(os.path.join(art_dir, "coverage_learning_curves_split.png"), dpi=300)
+        plt.savefig(os.path.join(art_dir, "coverage_learning_curves_split_identical_colors.png"), dpi=300)
     plt.close()
-    print("Saved updated split plots to:\n -", out_split_art_fresh, "\n -", out_split_desk_fresh)
+    print("Saved updated split plots to:\n -", out_split_desk_fresh)
 
 if __name__ == "__main__":
     main()

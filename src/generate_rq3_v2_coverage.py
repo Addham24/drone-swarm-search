@@ -8,7 +8,6 @@ Outputs:
   - 2D: ~/Desktop/Results/2D-mappo/rq3_v2_coverage_generalisation_2d.png
   - 3D: ~/Desktop/Results/3D-mappo/rq3_v2_coverage_generalisation_3d.png
   - Unified: ~/Desktop/Results/rq3_v2_coverage_generalisation_unified.png
-  - Copies to Antigravity brain artifact directory.
 """
 
 import os
@@ -24,7 +23,7 @@ import matplotlib.patches as patches
 OUT_2D = os.path.expanduser("~/Desktop/Results/2D-mappo")
 OUT_3D = os.path.expanduser("~/Desktop/Results/3D-mappo")
 OUT_GEN = os.path.expanduser("~/Desktop/Results")
-ARTIFACT_DIR = "/Users/AdhamMotawi/.gemini/antigravity-ide/brain/261d090f-67ca-4f3a-8220-dd983c502482"
+ARTIFACT_DIR = os.environ.get("ARTIFACT_DIR", None)
 
 # Import data loader and environment definitions
 from generate_rq_visualizations import (
@@ -329,7 +328,9 @@ def generate_rq3_v2_unified():
 
 
 def copy_to_artifacts(paths):
-    """Copy generated plots to antigravity artifact directory."""
+    """Optionally copy generated plots if ARTIFACT_DIR is defined."""
+    if not ARTIFACT_DIR or not os.path.exists(ARTIFACT_DIR):
+        return
     for src in paths:
         if os.path.exists(src):
             fname = os.path.basename(src)

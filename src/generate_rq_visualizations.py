@@ -31,7 +31,7 @@ BASE_3D = os.path.expanduser("~/Desktop/Results/3D-mappo/Coverage")
 OUT_2D = os.path.expanduser("~/Desktop/Results/2D-mappo")
 OUT_3D = os.path.expanduser("~/Desktop/Results/3D-mappo")
 OUT_GEN = os.path.expanduser("~/Desktop/Results")
-ARTIFACT_DIR = "/Users/AdhamMotawi/.gemini/antigravity-ide/brain/261d090f-67ca-4f3a-8220-dd983c502482"
+ARTIFACT_DIR = os.environ.get("ARTIFACT_DIR", None)
 
 ENVS = ["25x25_Standard", "25x25_Obstacles", "50x50_Standard", "50x50_Obstacles"]
 ENV_SHORT = ["25 Std", "25 Obs", "50 Std", "50 Obs"]
@@ -553,7 +553,9 @@ def generate_rq4_unified():
 
 
 def copy_to_artifacts(paths):
-    """Copy generated plots to antigravity artifact directory."""
+    """Optionally copy generated plots if ARTIFACT_DIR is defined."""
+    if not ARTIFACT_DIR or not os.path.exists(ARTIFACT_DIR):
+        return
     for src in paths:
         if os.path.exists(src):
             fname = os.path.basename(src)

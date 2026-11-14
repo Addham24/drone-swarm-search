@@ -1,6 +1,6 @@
 # 3D Adapter Fix & Benchmark Verification Report
 
-**Author**: Antigravity Autonomous Coding Agent  
+**Author**: Adham Motawi  
 **Date**: November 7, 2026  
 **Repository**: `https://github.com/Addham24/drone-swarm-search.git`  
 **Git Commits**:  
