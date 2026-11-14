@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate Publication-Quality 3D Visualizer Snapshots for Figure 2.3
+Generate Publication-Quality 3D Visualiser Snapshots for Figure 2.3
 ===================================================================
 Produces high-resolution 3D renders matching the evaluated environment:
   - Multi-height Urban Warfare obstacles (96 building blocks on 25x25)

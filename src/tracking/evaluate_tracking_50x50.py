@@ -1,9 +1,9 @@
 """
-50×50 Zero-Shot Generalization Evaluation for Dynamic Target Tracking
+50×50 Zero-Shot Generalisation Evaluation for Dynamic Target Tracking
 =====================================================================
 Evaluates the same trained 25×25 tracking models on a 50×50 grid environment.
 
-This is a ZERO-SHOT GENERALIZATION test:
+This is a ZERO-SHOT GENERALISATION test:
   - Models were trained on 25×25 grids
   - Observation matrices (50×50) are downscaled to 25×25 via INTER_AREA before inference
   - Position vectors are already normalized [0,1] by BatteryStationWrapper (grid-agnostic)

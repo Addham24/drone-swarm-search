@@ -154,7 +154,7 @@ if __name__ == "__main__":
         for agent, reward in rewards.items():
             total_rewards[agent] += reward
             
-        time.sleep(0.1)  # Sleep briefly to make visualization perceivable
+        time.sleep(0.1)  # Sleep briefly to make visualisation perceivable
 
     # --- Episode Summary ---
     print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*60}")

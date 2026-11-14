@@ -1,7 +1,7 @@
 """
 Live Pygame Window Demo: Dynamic Target Tracking Benchmark
 ===========================================================
-Runs an interactive Pygame visualization window showing trained MARL drones
+Runs an interactive Pygame visualisation window showing trained MARL drones
 (RSPO V2, MAPPO, QMIX, MAA2C, COMA, IQL) pursuing a dynamic moving target in real-time.
 
 Includes a built-in greedy heuristic mode that follows the probability gradient,
@@ -309,7 +309,7 @@ def main():
                         pygame.quit()
                         return
             except pygame.error:
-                # Pygame not initialized or window closed
+                # Pygame not initialised or window closed
                 break
 
             step += 1

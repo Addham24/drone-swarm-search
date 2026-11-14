@@ -1,7 +1,7 @@
 """
 Live Pygame Window Demo: 25x25 Obstacle Airspace (Layout 3 Skyline)
 ====================================================================
-Runs an interactive Pygame visualization window showing pre-trained RSPO
+Runs an interactive Pygame visualisation window showing pre-trained RSPO
 drones navigating the 25x25 obstacle airspace in real-time.
 
 Usage:

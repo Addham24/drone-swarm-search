@@ -275,7 +275,7 @@ def evaluate_tracking_model(policy_fn, is_fault_active=True, n_seeds=100, grid_s
     res_batt = float(np.mean(battery_list))
 
     # Swarm Mission Efficiency Index (SMEI %): Resilience-weighted geometric mean across 4 dimensions
-    # Prioritizes resilience & energy health (w_survival=0.30, w_battery=0.30) alongside tracking (w_target=0.20, w_speed=0.20)
+    # Prioritises resilience & energy health (w_survival=0.30, w_battery=0.30) alongside tracking (w_target=0.20, w_speed=0.20)
     f_target = max(0.001, res_tf / 100.0)
     f_speed = max(0.001, (750.0 - res_dt) / 750.0)
     f_survival = max(0.001, res_surv / 100.0)

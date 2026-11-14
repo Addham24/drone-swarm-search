@@ -225,7 +225,7 @@ class VoxelGrid:
 
     def get_obstacle_height_map(self) -> np.ndarray:
         """
-        Return a 2D array of obstacle heights for visualization.
+        Return a 2D array of obstacle heights for visualisation.
 
         Returns:
             Array of shape (grid_size, grid_size) with integer heights.

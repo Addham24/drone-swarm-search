@@ -34,7 +34,7 @@ class TestVoxelGrid(unittest.TestCase):
         self.voxel = VoxelGrid(grid_size=10, z_max=5, n_drones=4)
 
     def test_reset_positions(self):
-        """Drones should be initialized at the correct 3D positions."""
+        """Drones should be initialised at the correct 3D positions."""
         positions = [(0, 0), (1, 0), (0, 1), (1, 1)]
         self.voxel.reset(positions, initial_z=1)
 

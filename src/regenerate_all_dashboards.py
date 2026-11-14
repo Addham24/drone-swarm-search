@@ -2,7 +2,7 @@
 """
 Regenerate Coverage Dashboards for All 40 Scenarios (2D-final-v3 & 3D-final-v3)
 ===============================================================================
-Ensures 100% visualization consistency across all 40 benchmark scenarios:
+Ensures 100% visualisation consistency across all 40 benchmark scenarios:
   - Panel 5: Labeled as '5. Mission Return (5× cells searched)'
   - Panel 6: Plots the mean of the per-seed 'smei' column (per-episode SMEI)
   - Identical styling, colors, and model order across 2D and 3D

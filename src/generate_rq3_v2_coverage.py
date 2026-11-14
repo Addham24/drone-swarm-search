@@ -1,5 +1,5 @@
 """
-RQ3 v2 Visualization Generator: Coverage-Focused Generalisation Dashboards
+RQ3 v2 Visualisation Generator: Coverage-Focused Generalisation Dashboards
 ========================================================================
 Generates dedicated, high-impact RQ3 generalisation matrices focused exclusively
 on Area Coverage Rate (%), showing all 12 models across 4 map topologies and 5 fault rates.

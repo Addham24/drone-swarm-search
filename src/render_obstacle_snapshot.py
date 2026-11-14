@@ -1,5 +1,5 @@
 """
-Obstacle Airspace Snapshot Visualizer & Renderer
+Obstacle Airspace Snapshot Visualiser & Renderer
 =================================================
 Generates crisp, high-resolution visual snapshot figures of the obstacle airspace
 (Layout 3 Scattered Skyline) for both 25x25 and 50x50 grid configurations.

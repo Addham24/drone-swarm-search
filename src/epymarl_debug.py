@@ -1,7 +1,7 @@
 """
-EPyMARL Env Initialization Debugger
+EPyMARL Env Initialisation Debugger
 ===================================
-Manually imports and reproduces the exact env initialization sequence
+Manually imports and reproduces the exact env initialisation sequence
 to isolate where the silent exit or crash is happening.
 """
 

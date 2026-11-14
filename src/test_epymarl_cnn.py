@@ -142,7 +142,7 @@ def main():
     env = build_env(render_mode=None if args.render_mode == "none" else args.render_mode,
                     disable_self_healing=args.disable_self_healing)
     
-    # Initialize agent model
+    # Initialise agent model
     # Inputs: obs (647) + one-hot agent ID (4) = 651
     mock_args = MockArgs(use_rnn=True, hidden_dim=args.hidden_dim, n_actions=9)
     agent = CNNAgent(input_shape=651, args=mock_args)
@@ -159,7 +159,7 @@ def main():
     agents = list(env.possible_agents)
     n_agents = len(agents)
     
-    # Initialize hidden states
+    # Initialise hidden states
     hidden_states = agent.init_hidden()  # returns shape (1, hidden_dim)
     # Expand hidden states to (n_agents, hidden_dim)
     hidden_states = hidden_states.expand(n_agents, -1).clone()

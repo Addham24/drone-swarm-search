@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Master Visualization Suite for Final Synchronized Benchmark (2D-final & 3D-final)
+Master Visualisation Suite for Final Synchronised Benchmark (2D-final & 3D-final)
 ===================================================================================
 Generates publication-quality RQ figures from the freshly evaluated final datasets:
   - RQ1: Self-Healing Ablation (2D, 3D, and Unified)

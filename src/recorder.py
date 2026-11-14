@@ -8,7 +8,7 @@ Credits:
 - Date: 21/03/2024
 - source: https://gist.github.com/RicardoRibeiroRodrigues/9c40f36909112950860a410a565de667
 Usage:
-1. Initialize PygameRecord with a filename and desired frames per second (fps).
+1. Initialise PygameRecord with a filename and desired frames per second (fps).
 2. Enter a Pygame event loop.
 3. Add frames to the recorder at desired intervals.
 4. When done recording, exit the Pygame event loop.

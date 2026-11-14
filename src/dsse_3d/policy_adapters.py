@@ -116,7 +116,7 @@ def wrap_epymarl_policy_for_3d(
 def extract_altitude_context(obs_dict: dict, n_drones: int = DEFAULT_N_DRONES) -> Dict[str, dict]:
     """
     Extract the 3D altitude context from augmented observations for logging
-    and visualization purposes.
+    and visualisation purposes.
 
     Args:
         obs_dict: Dict of agent -> (positions_augmented, matrix).

@@ -3,7 +3,7 @@
 Master Final Benchmark Runner: 2D-final & 3D-final
 ===================================================
 Executes the comprehensive, publication-grade coverage benchmark across:
-  - 12 MARL Models (Standardized peak training coverage checkpoints across 2D and 3D)
+  - 12 MARL Models (Standardised peak training coverage checkpoints across 2D and 3D)
   - 4 Environments (25x25 Standard, 25x25 Obstacles, 50x50 Standard, 50x50 Obstacles)
   - 5 Fault Regimes (No Faults 0.0, Low 0.00025, Standard 0.0005, High 0.00075, Severe 0.0010)
   - 100 Seeds per condition (1000 - 1099)

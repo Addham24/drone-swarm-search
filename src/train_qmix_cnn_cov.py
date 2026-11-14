@@ -6,7 +6,7 @@ DQN with VDN-style cooperative reward mixing and self-healing features:
 - Random fault injection (fault_prob=0.0005)
 - Teammate crash compensation rewards (BONUS=2.5, HORIZON=100)
 - Tanh activations (matching MAPPO architecture for fair comparison)
-- Dueling DQN + Double Q-Learning + Prioritized Experience Replay
+- Dueling DQN + Double Q-Learning + Prioritised Experience Replay
 
 Usage:
     python train_qmix_cnn_cov.py

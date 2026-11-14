@@ -1,5 +1,5 @@
 """
-RSPO (Resilience-Aware Swarm Policy Optimization) Test & Simulator Script
+RSPO (Resilience-Aware Swarm Policy Optimisation) Test & Simulator Script
 =============================================================================
 Tests a trained RSPO checkpoint on the DSSE Coverage simulator with visual rendering.
 

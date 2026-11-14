@@ -9,7 +9,7 @@ This module is self-contained and does NOT modify any existing 2D code.
 Components:
     - voxel_grid:       Core 3D voxel state manager (altitude, obstacles, FOV)
     - adapter:          Zero-Shot 3D Adapter wrapping 2D DSSE environments
-    - visualizer_3d:    Interactive Matplotlib 3D real-time visualizer
+    - visualizer_3d:    Interactive Matplotlib 3D real-time visualiser
     - evaluate_3d:      3D benchmark evaluation suite (tracking & coverage)
 
 Reference Architecture:

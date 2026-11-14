@@ -227,7 +227,7 @@ class DSSE3DAdapter(BaseParallelWrapper):
         # Altitude controller
         self.alt_controller = AltitudeController(self.voxel)
 
-        # Tracking for visualization and metrics
+        # Tracking for visualisation and metrics
         self.trajectory_history: Dict[int, List[Tuple[int, int, int]]] = {}
         self.altitude_changes_count = 0
         self.midair_collisions_count = 0
@@ -292,7 +292,7 @@ class DSSE3DAdapter(BaseParallelWrapper):
                 else:
                     positions_2d.append((0, 0))
 
-        # Initialize 3D voxel state
+        # Initialise 3D voxel state
         self.voxel.reset(positions_2d, initial_z=VoxelGrid.Z_SCAN)
 
         # Reset trajectory tracking
@@ -382,7 +382,7 @@ class DSSE3DAdapter(BaseParallelWrapper):
 
             # Filter SEARCH actions at wrong altitude
             if action_2d == 8 and not self.voxel.can_search(idx):
-                # Search not valid at current altitude — penalize
+                # Search not valid at current altitude — penalise
                 self.search_at_wrong_alt_count += 1
                 altitude_penalties[agent] = altitude_penalties.get(agent, 0.0) + \
                     self.SEARCH_AT_WRONG_ALT_PENALTY
@@ -428,7 +428,7 @@ class DSSE3DAdapter(BaseParallelWrapper):
                         for cell in self.voxel.get_fov_footprint(idx):
                             self.seen_states_3d.add(cell)
 
-            # Synchronize 3D coverage state back to base environment
+            # Synchronise 3D coverage state back to base environment
             self._sync_coverage(base_env)
 
         # Step 6: Apply altitude transition costs

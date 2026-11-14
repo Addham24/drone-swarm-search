@@ -42,7 +42,7 @@ Autonomous unmanned aerial vehicle (UAV) swarms operating in search-and-rescue, 
 
 Standard multi-agent reinforcement learning (MARL) algorithms assume hardware invariance during deployment. When hardware failures occur, their spatial coordination collapses, resulting in deadlocks, battery depletion, or mid-air collisions.
 
-This repository implements **RSPO (Resilient Swarm Policy Optimization)**, an on-policy decentralized actor-critic architecture equipped with a modular **Self-Healing mechanism**. RSPO enables homogeneous drone swarms to dynamically detect peer failures, infer fleet health, reorganize spatial search perimeters in real time, and balance urgent exploration with conservative base-station recharging.
+This repository implements **RSPO (Resilient Swarm Policy Optimisation)**, an on-policy decentralised actor-critic architecture equipped with a modular **Self-Healing mechanism**. RSPO enables homogeneous drone swarms to dynamically detect peer failures, infer fleet health, reorganise spatial search perimeters in real time, and balance urgent exploration with conservative base-station recharging.
 
 ---
 
@@ -88,9 +88,9 @@ This repository implements **RSPO (Resilient Swarm Policy Optimization)**, an on
 
 ### Core Self-Healing Innovations
 1. **Fleet Health Embedding (FHE):** Encodes the operational state of all peers into a low-dimensional learned latent vector h_t in R^32.
-2. **Crash-Sector Spatial Attention (CSSA):** Modulates the spatial feature map with Gaussian heatmaps centered on the last known positions of fallen peers, prompting healthy survivors to prioritize orphaned search sectors. Includes a verified inference-time switch (`--cssa_mode {trained, off, corrected}`).
+2. **Crash-Sector Spatial Attention (CSSA):** Modulates the spatial feature map with Gaussian heatmaps centered on the last known positions of fallen peers, prompting healthy survivors to prioritise orphaned search sectors. Includes a verified inference-time switch (`--cssa_mode {trained, off, corrected}`).
 3. **Dual-Objective Value Decomposition (DOVD):** Separates exploratory search rewards from logistical base-station return rewards into distinct value streams.
-4. **Resilience-Adaptive Clipping (RAC):** Dynamically widens PPO policy clipping bounds when peer failure is detected, accelerating policy reorganization.
+4. **Resilience-Adaptive Clipping (RAC):** Dynamically widens PPO policy clipping bounds when peer failure is detected, accelerating policy reorganisation.
 5. **Dynamic Sector Compensation Reward:** Rebalances the team reward structure upon hardware loss to reward survivors filling coverage gaps.
 
 ---
@@ -147,7 +147,7 @@ $$\text{SMEI} = 100 \times C^{0.4} \times S^{0.3} \times B^{0.3}$$
 |-- docs/                          # In-depth technical reports and figure assets
 |   |-- CSSA_VARIANTS_REPORT.md    # Formal CSSA defect and inference-mode investigation
 |   |-- ADAPTER_FIX_VERIFICATION_REPORT.md # 3D adapter and obstacle fix verification
-|   `-- images/                    # High-resolution simulator screenshots and 3D visualizers
+|   `-- images/                    # High-resolution simulator screenshots and 3D visualisers
 |-- src/                           # Core implementation
 |   |-- DSSE/                      # 2D Drone Swarm Search Environment package
 |   |-- dsse_3d/                   # Volumetric 3D adapter and continuous kinematics

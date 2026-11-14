@@ -1,5 +1,5 @@
 """
-RSPO: Resilience-Aware Swarm Policy Optimization (Training Script)
+RSPO: Resilience-Aware Swarm Policy Optimisation (Training Script)
 =====================================================================
 Novel MARL Algorithm for Self-Healing Drone Swarm Coverage Tasks.
 

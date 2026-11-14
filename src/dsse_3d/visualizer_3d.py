@@ -1,7 +1,7 @@
 """
-DSSE-3D Interactive Matplotlib Visualizer
+DSSE-3D Interactive Matplotlib Visualiser
 ==========================================
-Real-time 3D visualization of drone swarm operations in the DSSE-3D voxel
+Real-time 3D visualisation of drone swarm operations in the DSSE-3D voxel
 workspace using Matplotlib's mplot3d toolkit.
 
 Features:
@@ -278,12 +278,12 @@ def draw_search_frustum(ax, x, y, z):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Main Visualizer Class
+# Main Visualiser Class
 # ──────────────────────────────────────────────────────────────────────────────
 
 class DSSE3DVisualizer:
     """
-    Interactive 3D real-time visualizer for DSSE-3D environments.
+    Interactive 3D real-time visualiser for DSSE-3D environments.
 
     Args:
         env_3d: A DSSE3DAdapter-wrapped environment.
@@ -304,7 +304,7 @@ class DSSE3DVisualizer:
 
     def run(self, policy_fn, n_steps=750, export_path=None):
         """
-        Run the live 3D visualization loop.
+        Run the live 3D visualisation loop.
 
         Args:
             policy_fn: Policy function (obs_dict, agents) -> actions_dict.
@@ -672,7 +672,7 @@ def main():
         # Load trained model checkpoint
         policy_fn = _load_trained_model(args.model, args.task, args.grid_size)
 
-    # Run visualizer
+    # Run visualiser
     run_steps = 1500 if (args.grid_size == 50 and args.max_steps == 750) else args.max_steps
     viz = DSSE3DVisualizer(env, task=args.task)
     viz.run(policy_fn, n_steps=run_steps, export_path=args.export_gif)

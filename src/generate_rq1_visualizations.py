@@ -1,5 +1,5 @@
 """
-RQ1 Visualization Generator: Paired Ablation Analysis (Panel A)
+RQ1 Visualisation Generator: Paired Ablation Analysis (Panel A)
 ==============================================================
 Evaluates whether self-healing (compensation reward and fault-aware signals)
 improves Coverage and Fleet Survival compared with Vanilla training across

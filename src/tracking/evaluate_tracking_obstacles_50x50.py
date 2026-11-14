@@ -1,5 +1,5 @@
 """
-50×50 Zero-Shot Generalization Evaluation with Obstacles for Dynamic Target Tracking
+50×50 Zero-Shot Generalisation Evaluation with Obstacles for Dynamic Target Tracking
 ====================================================================================
 Evaluates all 12 trained 25×25 tracking models on a 50×50 grid with physical obstacles.
 
